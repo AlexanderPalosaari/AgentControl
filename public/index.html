@@ -19,6 +19,7 @@
     <a href="#/taulu" data-view="taulu"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10" rx="1"/><rect x="17" y="4" width="4" height="13" rx="1"/></svg>Taulu</a>
     <a href="#/riippuvuudet" data-view="riippuvuudet"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="2.5"/><circle cx="19" cy="6" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="M7.5 12H11a3 3 0 0 0 3-3V8.5a2.5 2.5 0 0 1 2.5-2.5M11 12a3 3 0 0 1 3 3v.5a2.5 2.5 0 0 0 2.5 2.5"/></svg>Riippuvuudet</a>
     <a href="#/muutokset" data-view="muutokset"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 8.5v7M8.5 6H13a3 3 0 0 1 3 3v.5"/></svg>Muutokset <span id="nav-changes" class="badge" hidden></span></a>
+    <a href="#/sandbox" data-view="sandbox"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l4-1 11-11-3-3L5 16zM14 6l3 3"/><path d="M14 20h6"/></svg>Sandbox</a>
     <a href="#/asetukset" data-view="asetukset"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>Asetukset</a>
   </nav>
   <section class="side-box" aria-label="Rinnakkaisuus">
@@ -68,6 +69,39 @@
         <button id="tts-toggle" type="button"></button></div>
     </div>
     <div class="group" id="set-keep"></div>
+  </section>
+  <section id="sandbox" aria-label="Sandbox">
+    <div class="sb-head">
+      <label for="sb-project">Projekti</label>
+      <select id="sb-project"></select>
+      <span class="muted" id="sb-hint">Ideoi projektia tekoälyn kanssa. Tekoäly näkee piirroksen vasta, kun painat "Näytä piirros tekoälylle".</span>
+    </div>
+    <div class="sb-grid">
+      <div class="sb-draw">
+        <div class="sb-tools" role="toolbar" aria-label="Piirtotyökalut">
+          <div class="sb-group" id="sb-colors"></div>
+          <div class="sb-group" id="sb-widths"></div>
+          <button type="button" id="sb-erase" aria-pressed="false" title="Pyyhekumi">Pyyhekumi</button>
+          <button type="button" id="sb-undo" title="Kumoa viimeisin veto (Ctrl+Z)">Kumoa</button>
+          <button type="button" id="sb-clear">Tyhjennä</button>
+          <button type="button" class="primary" id="sb-share">Näytä piirros tekoälylle</button>
+        </div>
+        <div class="sb-paper"><canvas id="sb-canvas" aria-label="Piirtoalue"></canvas></div>
+        <div class="muted" id="sb-saved"></div>
+      </div>
+      <div class="sb-chat">
+        <div class="chead2"><h2>Keskustelu</h2><span class="muted" id="sb-cost"></span></div>
+        <div id="sb-log" aria-live="polite"></div>
+        <form id="sb-form" autocomplete="off">
+          <textarea id="sb-input" maxlength="4000" rows="2" placeholder="Kirjoita idea tai kysymys (Enter lähettää, Shift+Enter rivinvaihto)"></textarea>
+          <button class="primary" type="submit">Lähetä</button>
+        </form>
+        <div class="row">
+          <button type="button" id="sb-reset" title="Tekoäly unohtaa aiemman keskustelun. Loki ja piirros säilyvät.">Uusi keskustelu</button>
+          <button type="button" id="sb-card">Luo kortti</button>
+        </div>
+      </div>
+    </div>
   </section>
   <main id="board"></main>
   <div id="bottom">
@@ -141,6 +175,21 @@
   <label id="c-check" class="c-check"><input type="checkbox"> <span></span></label>
   <div class="actions"><button type="button" id="c-cancel">Peruuta</button><button type="button" class="primary" id="c-ok">OK</button></div>
 </dialog>
+<dialog id="sbdlg">
+  <form method="dialog" id="sb-cform">
+    <h2 style="margin-top:0">Luo kortti sandboxista</h2>
+    <label for="sb-ctitle">Otsikko</label>
+    <input id="sb-ctitle" required maxlength="200">
+    <label for="sb-cdesc">Kuvaus</label>
+    <textarea id="sb-cdesc"></textarea>
+    <label class="c-check on" id="sb-cimage-row"><input type="checkbox" id="sb-cimage"> <span>Liitä viimeisin piirros</span></label>
+    <div id="sb-cerror" class="err"></div>
+    <div class="actions">
+      <button type="button" id="sb-ccancel">Peruuta</button>
+      <button class="primary" type="submit">Luo kortti</button>
+    </div>
+  </form>
+</dialog>
 <aside id="logpane" aria-label="Tapahtumaloki" hidden>
   <div class="log-head">
     <strong>Tapahtumaloki</strong>
@@ -173,6 +222,7 @@
 <script defer src="/js/voice-ui.js"></script>
 <script defer src="/js/command.js"></script>
 <script defer src="/js/voice-control.js"></script>
+<script defer src="/js/sandbox.js"></script>
 <script defer src="/js/main.js"></script>
 </body>
 </html>

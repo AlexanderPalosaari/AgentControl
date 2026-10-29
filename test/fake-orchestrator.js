@@ -10,10 +10,13 @@ process.stdin.on('end', () => {
   const mcp = at >= 0 ? JSON.parse(readFileSync(args[at + 1], 'utf8')) : null;
   if (process.env.FAKE_LOG) appendFileSync(process.env.FAKE_LOG, JSON.stringify({ args, cwd: process.cwd(), prompt, mcp }) + '\n');
   const resumeAt = args.indexOf('--resume');
-  if (resumeAt >= 0 && args[resumeAt + 1] === 'gone-session') {
-    process.stderr.write('No conversation found with session ID\n');
-    process.exit(1);
+  if (resumeAt >= 0 && args[resumeAt + 1] === 'gone-session') { // what the real CLI does: exit 0 with an error result
+    const msg = 'No conversation found with session ID: gone-session';
+    process.stderr.write(`${msg}\n`);
+    process.stdout.write(JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, num_turns: 0, session_id: 'gone-session', total_cost_usd: 0, errors: [msg] }) + '\n');
+    return;
   }
+  if (prompt.includes('CRASH')) { process.stderr.write('simulated crash\n'); process.exit(1); }
   const session_id = resumeAt >= 0 ? args[resumeAt + 1] : `orch-${Date.now()}`;
   const out = (e) => process.stdout.write(JSON.stringify({ session_id, ...e }) + '\n');
   out({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__board__board_overview', input: {} }] } });

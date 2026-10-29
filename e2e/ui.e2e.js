@@ -12,6 +12,7 @@ import { createApp } from '../server.js';
 import { createClaude } from '../lib/claude.js';
 
 const fake = fileURLToPath(new URL('../test/fake-claude.js', import.meta.url));
+const fakeSandbox = fileURLToPath(new URL('../test/fake-sandbox-claude.js', import.meta.url));
 const token = 't';
 const CHROME = [
   process.env.CHROME_PATH,
@@ -28,7 +29,7 @@ before(async () => {
   assert.ok(CHROME, 'No Chrome found; set CHROME_PATH');
   dir = await mkdtemp(join(tmpdir(), 'agentcontrol-e2e-'));
   await mkdir(join(dir, 'repos', 'repo-a'), { recursive: true });
-  server = createApp({ dataDir: join(dir, 'data'), token, reposRoot: join(dir, 'repos'), claude: createClaude({ command: process.execPath, prefixArgs: [fake] }) });
+  server = createApp({ dataDir: join(dir, 'data'), token, reposRoot: join(dir, 'repos'), claude: createClaude({ command: process.execPath, prefixArgs: [fake] }), sandbox: { claude: createClaude({ command: process.execPath, prefixArgs: [fakeSandbox] }) } });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${server.address().port}`;
   browser = await puppeteer.launch({ executablePath: CHROME, headless: true });
@@ -209,5 +210,41 @@ test('the dependency view draws the chains and a finished plan is approved from 
   await page.waitForFunction(() => document.querySelector('#next .plan-body')?.textContent.includes('Tee näin ja näin'));
   await page.click('#next .next-item.plan button.primary');
   await page.waitForFunction(async () => (await (await fetch('/api/cards')).json()).some((c) => c.title === 'Ketjun alku' && c.status === 'ready'));
+  assert.deepEqual(errors, []);
+});
+
+test('the sandbox keeps a drawing over a reload and shows it to the AI only from its button', async () => {
+  await page.evaluate(() => fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'piirto' }) }));
+  await page.goto(`${base}/#/sandbox`, { waitUntil: 'networkidle0' });
+  await page.waitForFunction(() => [...document.querySelectorAll('#sb-project option')].some((o) => o.value === 'piirto'));
+  await page.select('#sb-project', 'piirto');
+  await page.waitForFunction(() => !document.getElementById('sb-share').disabled);
+  assert.equal(await page.$eval('#chat-dock', (e) => getComputedStyle(e).display), 'none', 'the orchestrator steps aside');
+
+  await page.$eval('#sb-canvas', (c) => c.scrollIntoView({ block: 'center' }));
+  const box = await (await page.$('#sb-canvas')).boundingBox();
+  const saved = page.waitForResponse((r) => r.url().endsWith('/api/sandbox/piirto/canvas') && r.request().method() === 'PUT');
+  await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.5);
+  await page.mouse.down();
+  for (let i = 1; i <= 10; i++) await page.mouse.move(box.x + box.width * (0.2 + i * 0.06), box.y + box.height * 0.5);
+  await page.mouse.up();
+  assert.equal((await saved).status(), 200);
+
+  await page.reload({ waitUntil: 'networkidle0' });
+  // The line through the middle is drawn again from the saved strokes.
+  await page.waitForFunction(() => {
+    const c = document.getElementById('sb-canvas');
+    if (!c.width) return false;
+    const px = c.getContext('2d').getImageData(Math.round(c.width * 0.5) - 3, Math.round(c.height * 0.5) - 3, 7, 7).data; // around the middle
+    return px.some((v, i) => i % 4 === 3 && v > 200);
+  }, { timeout: 5000 });
+  assert.equal(await page.$eval('#sb-log', (e) => e.querySelectorAll('.me').length), 0, 'drawing alone sends nothing');
+
+  await page.click('#sb-share');
+  await page.waitForSelector('#sb-log img.sb-thumb', { timeout: 8000 });
+  await page.waitForFunction(() => [...document.querySelectorAll('#sb-log .bot')].some((b) => /Näen piirroksen/.test(b.textContent)), { timeout: 8000 });
+  assert.ok(await page.$eval('#sb-log img.sb-thumb', (img) => img.complete && img.naturalWidth > 0), 'the thumbnail loads');
+  await page.goto(`${base}/#/keskus`, { waitUntil: 'networkidle0' });
+  assert.notEqual(await page.$eval('#chat-dock', (e) => getComputedStyle(e).display), 'none');
   assert.deepEqual(errors, []);
 });

@@ -17,7 +17,7 @@ function fmtTokens(n) {
 const workTokens = (u) => (u?.input ?? 0) + (u?.output ?? 0) + (u?.cacheWrite ?? 0);
 const usageText = (u) => `${fmtTokens(workTokens(u))} (syöte ${fmtTokens(u?.input)} + välimuistiin ${fmtTokens(u?.cacheWrite)} + tuloste ${fmtTokens(u?.output)}), välimuistista luettu ${fmtTokens(u?.cacheRead)}`;
 
-const USAGE_KINDS = { agent: 'Toteutusagentit', review: 'Automaattinen katselmointi', refine: 'Tarkennus', planner: 'Projektien suunnittelu', explore: 'Koodin tutkiminen', audit: 'Haavoittuvuustarkastus', orchestrator: 'Ohjaaja', voice: 'Puheen tulkinta' };
+const USAGE_KINDS = { agent: 'Toteutusagentit', review: 'Automaattinen katselmointi', refine: 'Tarkennus', planner: 'Projektien suunnittelu', explore: 'Koodin tutkiminen', audit: 'Haavoittuvuustarkastus', orchestrator: 'Ohjaaja', voice: 'Puheen tulkinta', sandbox: 'Sandbox' };
 
 /** At most every 15 s (the summary reads the whole ledger); `force` after something that certainly spent tokens. */
 async function loadUsage(force = false) {

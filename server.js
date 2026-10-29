@@ -18,6 +18,7 @@ import { createAuditor } from './lib/audit.js';
 import { createRepos } from './lib/repos.js';
 import { EFFORTS, MODEL_ALIASES } from './lib/models.js';
 import { createOrchestrator } from './lib/orchestrator.js';
+import { MAX_CANVAS_BODY, createSandbox } from './lib/sandbox.js';
 import { MAX_IMAGE, createAttachments } from './lib/attachments.js';
 import { createNextSteps, createPhases } from './lib/next.js';
 import { createTrust } from './lib/trust.js';
@@ -36,8 +37,9 @@ const COOKIE = 'ac_token';
 const MAX_BODY = 1_000_000;
 const LOGIN_CODE_MS = 10 * 60_000;
 const MAX_AUDIO = 16_000 * 30 * 4; // 30 s of 16 kHz float32
+const MAX_SHARE = Math.ceil(MAX_IMAGE * 1.4) + 10_000; // a sandbox drawing: a PNG as base64 in JSON
 
-export function createApp({ dataDir, token, archiveDays = 30, claude = createClaude(), reposRoot = dirname(root), model = null, effort = null, runner: runnerOptions = {}, reviewer = null, azdo = createAzdo({ getToken: createAzCliToken() }), github = createGithub({ getToken: createGithubToken() }), publisher: publisherOptions = {}, voice: voiceOptions = {}, orchestrator: orchestratorOptions = {}, stt = createStt({ cacheDir: join(dataDir, 'models') }), transcripts = null }) {
+export function createApp({ dataDir, token, archiveDays = 30, claude = createClaude(), reposRoot = dirname(root), model = null, effort = null, runner: runnerOptions = {}, reviewer = null, azdo = createAzdo({ getToken: createAzCliToken() }), github = createGithub({ getToken: createGithubToken() }), publisher: publisherOptions = {}, voice: voiceOptions = {}, orchestrator: orchestratorOptions = {}, sandbox: sandboxOptions = {}, stt = createStt({ cacheDir: join(dataDir, 'models') }), transcripts = null }) {
   // On disk, so the log and the conversation survive restarts.
   // A command that fails every few seconds (e.g. `claude agents` broken by an update) is logged once, then counted.
   const journal = createJournal(join(dataDir, 'events.jsonl'), { collapseMs: 10 * 60_000 });
@@ -65,6 +67,8 @@ export function createApp({ dataDir, token, archiveDays = 30, claude = createCla
   const phases = createPhases({ store, refiner, runner, projects });
   // The orchestrator's board tools call this server back, so they need the address it ends up listening on.
   const orchestrator = createOrchestrator({ claude, dataDir, token, ledger, log, getBaseUrl: () => `http://127.0.0.1:${server.address().port}`, ...orchestratorOptions });
+  // Each project's brainstorming chat and drawing canvas.
+  const sandbox = createSandbox({ claude, dataDir, projects, explorer, store, attachments, ledger, log, ...sandboxOptions });
 
   const tokenOk = (given) => {
     if (typeof given !== 'string') return false;
@@ -167,6 +171,25 @@ export function createApp({ dataDir, token, archiveDays = 30, claude = createCla
         if (req.method === 'POST') return send(res, 200, await orchestrator.send(await readJson(req)));
       }
       if (url.pathname === '/api/orchestrator/reset' && req.method === 'POST') return send(res, 200, await orchestrator.reset());
+
+      const sb = url.pathname.match(/^\/api\/sandbox\/([^/]+)(?:\/(chat|canvas|share|reset|card|image\/(canvas-\d+\.png)))?$/);
+      if (sb) {
+        let name = '';
+        try { name = decodeURIComponent(sb[1]); } catch { /* malformed: not found below */ }
+        const action = sb[3] ? 'image' : sb[2];
+        if (!action && req.method === 'GET') return send(res, 200, await sandbox.getState(name));
+        if (action === 'chat' && req.method === 'POST') return send(res, 200, await sandbox.send(name, await readJson(req)));
+        if (action === 'canvas' && req.method === 'PUT') return send(res, 200, await sandbox.saveCanvas(name, await readJson(req, MAX_CANVAS_BODY)));
+        if (action === 'canvas' && req.method === 'DELETE') return send(res, 200, await sandbox.clearCanvas(name));
+        if (action === 'share' && req.method === 'POST') return send(res, 200, await sandbox.share(name, await readJson(req, MAX_SHARE)));
+        if (action === 'reset' && req.method === 'POST') return send(res, 200, await sandbox.reset(name));
+        if (action === 'card' && req.method === 'POST') return send(res, 201, await sandbox.createCard(name, await readJson(req)));
+        if (action === 'image' && req.method === 'GET') {
+          const data = await sandbox.readImage(name, sb[3]);
+          res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+          return res.end(data);
+        }
+      }
 
       if (url.pathname === '/api/projects') {
         if (req.method === 'GET') return send(res, 200, await withActiveAgents(await projects.list()));
@@ -344,6 +367,7 @@ export function createApp({ dataDir, token, archiveDays = 30, claude = createCla
   server.auditor = auditor;
   server.repos = repos;
   server.orchestrator = orchestrator;
+  server.sandbox = sandbox;
   server.log = log;
   server.ledger = ledger;
   server.newLoginCode = newLoginCode;
@@ -385,12 +409,12 @@ async function readRaw(req, max) {
   return Buffer.concat(chunks);
 }
 
-async function readJson(req) {
+async function readJson(req, max = MAX_BODY) {
   let size = 0;
   const chunks = [];
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > MAX_BODY) throw new ValidationError('body too large');
+    if (size > max) throw new ValidationError('body too large');
     chunks.push(chunk);
   }
   try {
@@ -465,6 +489,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     reviewer: reviewerEnv(process.env),
     voice: { model: process.env.AGENTCONTROL_VOICE_MODEL ?? 'haiku', effort: process.env.AGENTCONTROL_VOICE_EFFORT ?? null },
     orchestrator: { model: process.env.AGENTCONTROL_ORCHESTRATOR_MODEL ?? 'sonnet', effort: process.env.AGENTCONTROL_ORCHESTRATOR_EFFORT ?? null },
+    sandbox: { model: process.env.AGENTCONTROL_SANDBOX_MODEL ?? 'sonnet', effort: process.env.AGENTCONTROL_SANDBOX_EFFORT ?? null },
   });
   // Errors printed anywhere in the app also go to the event log, where the person can see them.
   const printError = console.error.bind(console);

@@ -262,7 +262,7 @@ document.getElementById('cmd-form').addEventListener('submit', async (ev) => {
 document.addEventListener('keydown', (ev) => {
   if (ev.key !== '/' || ev.ctrlKey || ev.metaKey || ev.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName ?? '')) return;
   ev.preventDefault();
-  cmdInput.focus();
+  (document.body.dataset.view === 'sandbox' ? document.getElementById('sb-input') : cmdInput).focus(); // the sandbox has its own chat
 });
 
 function runVoiceCommand(raw) {
