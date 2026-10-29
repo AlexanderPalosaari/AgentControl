@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<title>Asetukset</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0E1116}
+button{font-family:inherit;color:inherit;cursor:pointer}
+a{color:inherit;text-decoration:none}
+button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid #6CB0FF;outline-offset:2px}
+.hov:hover{background:#1B2129}
+.nav:hover{background:#151A21;color:#E7EBF0}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+</style>
+</helmet>
+<div style="width:100%;min-height:1500px;box-sizing:border-box;background:#0E1116;color:#E7EBF0;font-family:Inter,system-ui,sans-serif;font-size:14px;line-height:1.45;display:flex;flex-wrap:wrap;align-items:stretch">
+
+  <aside style="flex:1 1 240px;max-width:240px;box-sizing:border-box;background:#0B0E12;border-right:1px solid #1E2530;padding:24px 16px;display:flex;flex-direction:column;gap:28px">
+    <div style="display:flex;align-items:center;gap:10px;padding:0 8px">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6CB0FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"></path></svg>
+      <span style="font-weight:700;font-size:16px;letter-spacing:-0.01em">AgentControl</span>
+    </div>
+    <nav aria-label="Näkymät" style="display:flex;flex-direction:column;gap:2px">
+      <a href="Main.dc.html" class="nav" style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#98A2B1;font-weight:500">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect></svg>
+        Komentokeskus
+      </a>
+      <a href="Taulu.dc.html" class="nav" style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#98A2B1;font-weight:500">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1"></rect><rect x="10" y="4" width="5" height="10" rx="1"></rect><rect x="17" y="4" width="4" height="13" rx="1"></rect></svg>
+        Taulu
+      </a>
+      <a href="Muutokset.dc.html" class="nav" style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#98A2B1;font-weight:500">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"></circle><circle cx="6" cy="18" r="2.5"></circle><circle cx="18" cy="12" r="2.5"></circle><path d="M6 8.5v7M8.5 6H13a3 3 0 0 1 3 3v.5"></path></svg>
+        Muutokset
+        <span style="margin-left:auto;background:#2A2147;color:#CBB9FF;border-radius:999px;font-size:12px;font-weight:600;padding:1px 8px">1</span>
+      </a>
+      <a href="Asetukset.dc.html" class="nav" style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;background:#1B2129;color:#E7EBF0;font-weight:600">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"></path><circle cx="16" cy="7" r="2"></circle><circle cx="8" cy="17" r="2"></circle></svg>
+        Asetukset
+      </a>
+    </nav>
+    <nav aria-label="Asetusryhmät" style="display:flex;flex-direction:column;gap:2px">
+      <div style="font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#7D8796;padding:0 8px 6px">Tällä sivulla</div>
+      <sc-for list="{{groups}}" as="g" hint-placeholder-count="5">
+        <a href="{{g.href}}" class="nav" style="padding:7px 10px;border-radius:8px;color:#98A2B1;font-size:13.5px">{{g.name}}</a>
+      </sc-for>
+    </nav>
+  </aside>
+
+  <div style="flex:999 1 640px;min-width:0;box-sizing:border-box;padding:28px 32px 48px;display:flex;flex-direction:column;gap:24px;max-width:980px">
+    <header style="display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px">
+      <div>
+        <h1 style="margin:0;font-size:26px;font-weight:700;letter-spacing:-0.02em">Asetukset</h1>
+        <p style="margin:4px 0 0;color:#98A2B1">Muutokset tallentuvat heti. Käynnissä oleviin agentteihin ne eivät vaikuta.</p>
+      </div>
+      <span style="display:inline-flex;align-items:center;gap:8px;color:#62D08F;font-size:13px;font-weight:500">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"></path></svg>
+        Tallennettu
+      </span>
+    </header>
+
+    <section id="rinnakkaisuus" aria-labelledby="h-rinn" style="border:1px solid #262D38;border-radius:12px;background:#12161C">
+      <div style="padding:16px 20px;border-bottom:1px solid #262D38"><h2 id="h-rinn" style="margin:0;font-size:16px;font-weight:600">Rinnakkaisuus</h2><p style="margin:2px 0 0;color:#98A2B1;font-size:13px">Montako agenttia saa olla työssä yhtä aikaa. Ylimenevät kortit jonottavat.</p></div>
+      <sc-for list="{{steppers}}" as="s" hint-placeholder-count="2">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px 24px;padding:14px 20px;border-bottom:1px solid #1B2129">
+          <div style="flex:1 1 260px"><div style="font-weight:500">{{s.label}}</div><div style="color:#98A2B1;font-size:13px">{{s.help}}</div></div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <button type="button" onClick="{{ s.dec }}" aria-label="Vähennä: {{s.label}}" class="hov" style="width:44px;height:44px;border-radius:8px;border:1px solid #3A4452;background:transparent;font-size:20px">−</button>
+            <span class="mono" style="min-width:44px;text-align:center;font-size:18px;font-weight:500">{{s.value}}</span>
+            <button type="button" onClick="{{ s.inc }}" aria-label="Lisää: {{s.label}}" class="hov" style="width:44px;height:44px;border-radius:8px;border:1px solid #3A4452;background:transparent;font-size:20px">+</button>
+          </div>
+        </div>
+      </sc-for>
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px 24px;padding:14px 20px">
+        <div style="flex:1 1 260px"><div style="font-weight:500">Yöajan aikaväli</div><div style="color:#98A2B1;font-size:13px">Tänä aikana käytetään yörajaa.</div></div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <label for="n1" style="position:absolute;left:-9999px">Yö alkaa</label><input id="n1" value="22:00" class="mono" style="width:84px;min-height:44px;box-sizing:border-box;text-align:center;border-radius:8px;border:1px solid #262D38;background:#0B0E12;color:#E7EBF0;font-size:14px">
+          <span style="color:#7D8796">–</span>
+          <label for="n2" style="position:absolute;left:-9999px">Yö päättyy</label><input id="n2" value="06:00" class="mono" style="width:84px;min-height:44px;box-sizing:border-box;text-align:center;border-radius:8px;border:1px solid #262D38;background:#0B0E12;color:#E7EBF0;font-size:14px">
+        </div>
+      </div>
+    </section>
+
+    <section id="agentit" aria-labelledby="h-ag" style="border:1px solid #262D38;border-radius:12px;background:#12161C">
+      <div style="padding:16px 20px;border-bottom:1px solid #262D38"><h2 id="h-ag" style="margin:0;font-size:16px;font-weight:600">Agenttien oletukset</h2><p style="margin:2px 0 0;color:#98A2B1;font-size:13px">Käytetään kun kortissa ei ole omaa valintaa.</p></div>
+      <sc-for list="{{segments}}" as="g" hint-placeholder-count="2">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px 24px;padding:14px 20px;border-bottom:1px solid #1B2129">
+          <div style="flex:1 1 260px"><div style="font-weight:500">{{g.label}}</div><div style="color:#98A2B1;font-size:13px">{{g.help}}</div></div>
+          <div role="group" aria-label="{{g.label}}" style="display:flex;border:1px solid #3A4452;border-radius:8px;overflow:hidden">
+            <sc-for list="{{g.opts}}" as="o" hint-placeholder-count="3">
+              <button type="button" onClick="{{ o.pick }}" aria-pressed="{{ o.on }}" style="min-height:44px;padding:0 16px;border:0;border-right:1px solid #3A4452;background:{{o.bg}};color:{{o.fg}};font-weight:{{o.fw}}">{{o.label}}</button>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+      <sc-for list="{{agentToggles}}" as="t" hint-placeholder-count="3">
+        <div style="display:flex;align-items:center;gap:16px;padding:14px 20px;border-bottom:1px solid #1B2129">
+          <div style="flex:1 1 auto;min-width:0"><div style="font-weight:500">{{t.label}}</div><div style="color:#98A2B1;font-size:13px">{{t.help}}</div></div>
+          <button type="button" role="switch" aria-checked="{{ t.on }}" aria-label="{{t.label}}" onClick="{{ t.pick }}" style="flex:none;width:52px;height:44px;border:0;background:transparent;padding:0;display:flex;align-items:center;justify-content:center"><span style="position:relative;width:44px;height:26px;border-radius:13px;background:{{t.track}};transition:background .15s"><span style="position:absolute;top:3px;left:{{t.knob}};width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s"></span></span></button>
+        </div>
+      </sc-for>
+    </section>
+
+    <section id="projektit" aria-labelledby="h-pr" style="border:1px solid #262D38;border-radius:12px;background:#12161C">
+      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #262D38">
+        <div><h2 id="h-pr" style="margin:0;font-size:16px;font-weight:600">Projektit ja yhteydet</h2><p style="margin:2px 0 0;color:#98A2B1;font-size:13px">Repot joihin agentit saavat tehdä worktreet.</p></div>
+        <button type="button" class="hov" style="min-height:44px;padding:0 16px;border-radius:8px;border:1px solid #3A4452;background:transparent;font-weight:600">+ Lisää repo</button>
+      </div>
+      <sc-for list="{{projects}}" as="p" hint-placeholder-count="3">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px 16px;align-items:center;padding:14px 20px;border-bottom:1px solid #1B2129">
+          <div style="min-width:0"><div style="font-weight:600">{{p.name}}</div><div class="mono" style="color:#98A2B1;font-size:12px;overflow-wrap:anywhere">{{p.path}}</div></div>
+          <div style="color:#B4BDCA;font-size:13px">{{p.host}}</div>
+          <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:{{p.color}};font-weight:500">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{p.icon}}"></path></svg>
+            {{p.status}}
+          </div>
+        </div>
+      </sc-for>
+      <div style="padding:14px 20px;color:#98A2B1;font-size:13px">Tunnistautuminen: Entra (<span class="mono" style="color:#E7EBF0">az login</span>), voimassa vielä 54 min. PAT-varatunnus puuttuu.</div>
+    </section>
+
+    <section id="ilmoitukset" aria-labelledby="h-il" style="border:1px solid #262D38;border-radius:12px;background:#12161C">
+      <div style="padding:16px 20px;border-bottom:1px solid #262D38"><h2 id="h-il" style="margin:0;font-size:16px;font-weight:600">Ilmoitukset ja puheohjaus</h2></div>
+      <sc-for list="{{notifyToggles}}" as="t" hint-placeholder-count="4">
+        <div style="display:flex;align-items:center;gap:16px;padding:14px 20px;border-bottom:1px solid #1B2129">
+          <div style="flex:1 1 auto;min-width:0"><div style="font-weight:500">{{t.label}}</div><div style="color:#98A2B1;font-size:13px">{{t.help}}</div></div>
+          <button type="button" role="switch" aria-checked="{{ t.on }}" aria-label="{{t.label}}" onClick="{{ t.pick }}" style="flex:none;width:52px;height:44px;border:0;background:transparent;padding:0;display:flex;align-items:center;justify-content:center"><span style="position:relative;width:44px;height:26px;border-radius:13px;background:{{t.track}};transition:background .15s"><span style="position:absolute;top:3px;left:{{t.knob}};width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s"></span></span></button>
+        </div>
+      </sc-for>
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px 24px;padding:14px 20px">
+        <div style="flex:1 1 260px"><div style="font-weight:500">Herätesana</div><div style="color:#98A2B1;font-size:13px">Puhe tulkitaan komennoksi vain, kun se alkaa tällä sanalla.</div></div>
+        <label for="wake" style="position:absolute;left:-9999px">Herätesana</label>
+        <input id="wake" value="agentti" style="width:200px;min-height:44px;box-sizing:border-box;padding:0 14px;border-radius:8px;border:1px solid #262D38;background:#0B0E12;color:#E7EBF0;font:inherit">
+      </div>
+    </section>
+
+    <section id="sailytys" aria-labelledby="h-sa" style="border:1px solid #262D38;border-radius:12px;background:#12161C">
+      <div style="padding:16px 20px;border-bottom:1px solid #262D38"><h2 id="h-sa" style="margin:0;font-size:16px;font-weight:600">Tietojen säilytys</h2><p style="margin:2px 0 0;color:#98A2B1;font-size:13px">Poistot koskevat vain arkistoituja kortteja ja niiden worktreitä.</p></div>
+      <sc-for list="{{keepSteppers}}" as="s" hint-placeholder-count="2">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px 24px;padding:14px 20px;border-bottom:1px solid #1B2129">
+          <div style="flex:1 1 260px"><div style="font-weight:500">{{s.label}}</div><div style="color:#98A2B1;font-size:13px">{{s.help}}</div></div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <button type="button" onClick="{{ s.dec }}" aria-label="Vähennä: {{s.label}}" class="hov" style="width:44px;height:44px;border-radius:8px;border:1px solid #3A4452;background:transparent;font-size:20px">−</button>
+            <span class="mono" style="min-width:76px;text-align:center;font-size:16px;font-weight:500">{{s.value}}</span>
+            <button type="button" onClick="{{ s.inc }}" aria-label="Lisää: {{s.label}}" class="hov" style="width:44px;height:44px;border-radius:8px;border:1px solid #3A4452;background:transparent;font-size:20px">+</button>
+          </div>
+        </div>
+      </sc-for>
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px 24px;padding:14px 20px">
+        <div style="flex:1 1 260px"><div style="font-weight:500">Levytilaa käytössä</div><div class="mono" style="color:#98A2B1;font-size:13px">worktreet 1.2 Gt · kortit 14 Mt · mallit 480 Mt</div></div>
+        <button type="button" class="hov" style="min-height:44px;padding:0 16px;border-radius:8px;border:1px solid #3A4452;background:transparent;font-weight:600">Siivoa nyt</button>
+      </div>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1500}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const st = Object.assign({ day: 4, night: 6, model: 'sonnet', effort: 'medium', review: true, security: false, notify: true, voice: false, tts: false, wake: true, keepDays: 14, keepCost: 90 }, this.state || {});
+    const set = (k, v) => this.setState({ [k]: v });
+    const stepper = (key, label, help, min, max, step, unit) => ({
+      label, help, value: st[key] + unit,
+      dec: () => set(key, Math.max(min, st[key] - step)),
+      inc: () => set(key, Math.min(max, st[key] + step))
+    });
+    const seg = (key, label, help, opts) => ({
+      label, help,
+      opts: opts.map(([v, l]) => ({
+        label: l, on: st[key] === v, bg: st[key] === v ? 'rgba(108,176,255,0.18)' : 'transparent', fg: st[key] === v ? '#6CB0FF' : '#E7EBF0', fw: st[key] === v ? 700 : 500,
+        pick: () => set(key, v)
+      }))
+    });
+    const tog = (key, label, help) => ({ label, help, on: !!st[key], track: st[key] ? '#6CB0FF' : '#3A4452', knob: st[key] ? '21px' : '3px', pick: () => set(key, !st[key]) });
+    return {
+      groups: [
+        { name: 'Rinnakkaisuus', href: '#rinnakkaisuus' }, { name: 'Agenttien oletukset', href: '#agentit' },
+        { name: 'Projektit ja yhteydet', href: '#projektit' }, { name: 'Ilmoitukset ja puhe', href: '#ilmoitukset' }, { name: 'Tietojen säilytys', href: '#sailytys' }
+      ],
+      steppers: [
+        stepper('day', 'Päiväraja', 'Samanaikaisia agentteja päivällä.', 1, 12, 1, ''),
+        stepper('night', 'Yöraja', 'Samanaikaisia agentteja yöllä.', 1, 12, 1, '')
+      ],
+      segments: [
+        seg('model', 'Oletusmalli', 'Kevyt malli riittää pieniin tikettiin, raskas vaativiin.', [['haiku', 'Haiku'], ['sonnet', 'Sonnet'], ['opus', 'Opus']]),
+        seg('effort', 'Oletus-effort', 'Korkeampi effort on hitaampi ja kalliimpi.', [['low', 'Matala'], ['medium', 'Keski'], ['high', 'Korkea']])
+      ],
+      agentToggles: [
+        tog('review', 'Automaattinen katselmointi', 'Ajaa /code-review kun agentti on valmis. Agentti korjaa oikeat löydökset kerran.'),
+        tog('security', 'Tietoturvakatselmointi', 'Ajaa lisäksi /security-review. Hidastaa ja kasvattaa kustannusta.')
+      ],
+      projects: [
+        { name: 'kauppa-web', path: 'C:\\code\\kauppa-web', host: 'Azure Repos · main', status: 'Yhteys kunnossa', color: '#62D08F', icon: 'M5 12.5l4.5 4.5L19 7' },
+        { name: 'kauppa-api', path: 'C:\\code\\kauppa-api', host: 'Azure Repos · main', status: 'Yhteys kunnossa', color: '#62D08F', icon: 'M5 12.5l4.5 4.5L19 7' },
+        { name: 'harjoitus', path: 'C:\\code\\harjoitus', host: 'Vain paikallinen · main', status: 'Ei etärepoa', color: '#F5B94E', icon: 'M12 9v4.5M12 17v.5M3 20L12 4l9 16z' }
+      ],
+      notifyToggles: [
+        tog('notify', 'Selainilmoitukset', 'Ilmoitus kun kortti odottaa sinua tai on katselmoitavana.'),
+        tog('voice', 'Puheohjaus', 'Komenna ohjaajaa puhumalla. Puheentunnistus toimii paikallisesti.'),
+        tog('wake', 'Vaadi herätesana', 'Estää tahattomat komennot taustapuheesta.'),
+        tog('tts', 'Vastaa ääneen', 'Ohjelma lukee vastaukset ja agentin kysymykset.')
+      ],
+      keepSteppers: [
+        stepper('keepDays', 'Poista arkistoidut worktreet', 'Päivää arkistoinnista. Commitit ja kustannukset säilyvät.', 1, 90, 1, ' pv'),
+        stepper('keepCost', 'Säilytä tapahtumaloki', 'Päivää.', 7, 365, 7, ' pv')
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

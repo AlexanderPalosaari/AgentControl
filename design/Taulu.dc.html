@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<title>Taulu</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0E1116}
+button{font-family:inherit;color:inherit;cursor:pointer}
+a{color:inherit;text-decoration:none}
+button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid #6CB0FF;outline-offset:2px}
+.hov:hover{background:#1B2129}
+.nav:hover{background:#151A21;color:#E7EBF0}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.live{animation:pulse 1.6s ease-in-out infinite}
+</style>
+</helmet>
+<div style="width:100%;min-height:980px;box-sizing:border-box;background:#0E1116;color:#E7EBF0;font-family:Inter,system-ui,sans-serif;font-size:14px;line-height:1.45;display:flex;flex-wrap:wrap;align-items:stretch">
+
+  <aside style="flex:1 1 240px;max-width:240px;box-sizing:border-box;background:#0B0E12;border-right:1px solid #1E2530;padding:24px 16px;display:flex;flex-direction:column;gap:28px">
+    <div style="display:flex;align-items:center;gap:10px;padding:0 8px">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6CB0FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"></path></svg>
+      <span style="font-weight:700;font-size:16px;letter-spacing:-0.01em">AgentControl</span>
+    </div>
+    <nav aria-label="Näkymät" style="display:flex;flex-direction:column;gap:2px">
+      <a href="Main.dc.html" class="nav" style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#98A2B1;font-weight:500">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect></svg>
+        Komentokeskus
+      </a>
+      <a href="Taulu.dc.html" class="nav" style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;background:#1B2129;color:#E7EBF0;font-weight:600">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1"></rect><rect x="10" y="4" width="5" height="10" rx="1"></rect><rect x="17" y="4" width="4" height="13" rx="1"></rect></svg>
+        Taulu
+      </a>
+      <a href="Muutokset.dc.html" class="nav" style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#98A2B1;font-weight:500">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"></circle><circle cx="6" cy="18" r="2.5"></circle><circle cx="18" cy="12" r="2.5"></circle><path d="M6 8.5v7M8.5 6H13a3 3 0 0 1 3 3v.5"></path></svg>
+        Muutokset
+        <span style="margin-left:auto;background:#2A2147;color:#CBB9FF;border-radius:999px;font-size:12px;font-weight:600;padding:1px 8px">1</span>
+      </a>
+      <a href="Asetukset.dc.html" class="nav" style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#98A2B1;font-weight:500">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"></path><circle cx="16" cy="7" r="2"></circle><circle cx="8" cy="17" r="2"></circle></svg>
+        Asetukset
+      </a>
+    </nav>
+    <section aria-label="Suodata" style="display:flex;flex-direction:column;gap:8px">
+      <div style="font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#7D8796;padding:0 8px 4px">Suodata repon mukaan</div>
+      <sc-for list="{{repos}}" as="r" hint-placeholder-count="4">
+        <button type="button" class="hov" aria-pressed="{{ r.on }}" style="display:flex;align-items:center;gap:10px;padding:8px 10px;min-height:40px;border-radius:8px;border:1px solid {{r.bd}};background:{{r.bg}};text-align:left;font-size:13.5px">
+          <span style="flex:1">{{r.name}}</span>
+          <span class="mono" style="color:#98A2B1;font-size:12px">{{r.count}}</span>
+        </button>
+      </sc-for>
+    </section>
+  </aside>
+
+  <div style="flex:999 1 640px;min-width:0;box-sizing:border-box;padding:28px 32px 32px;display:flex;flex-direction:column;gap:20px">
+    <header style="display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px">
+      <div>
+        <h1 style="margin:0;font-size:26px;font-weight:700;letter-spacing:-0.02em">Taulu</h1>
+        <p style="margin:4px 0 0;color:#98A2B1">Kortin elinkaari vasemmalta oikealle. Kortissa näkyy mitä agentti tekee ja paljonko se on muuttanut.</p>
+      </div>
+      <button type="button" style="padding:10px 16px;min-height:44px;border-radius:8px;border:1px solid #6CB0FF;background:#6CB0FF;color:#07121F;font-weight:600">+ Uusi kortti</button>
+    </header>
+
+    <div style="overflow-x:auto;padding-bottom:12px">
+      <div style="display:flex;gap:14px;align-items:flex-start;min-width:max-content">
+        <sc-for list="{{cols}}" as="c" hint-placeholder-count="6">
+          <section style="flex:0 0 280px;display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;align-items:center;gap:8px;padding:0 4px">
+              <span style="width:10px;height:10px;border-radius:3px;background:{{c.color}}" aria-hidden="true"></span>
+              <h2 style="margin:0;font-size:14px;font-weight:600">{{c.name}}</h2>
+              <span class="mono" style="color:#98A2B1;font-size:12px">{{c.n}}</span>
+              <span style="margin-left:auto;color:#7D8796;font-size:12px">{{c.limit}}</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:10px;padding:10px;border-radius:12px;background:#12161C;border:1px solid #1E2530;min-height:120px">
+              <sc-for list="{{c.cards}}" as="k" hint-placeholder-count="2">
+                <article style="padding:12px;border-radius:10px;background:#1B2129;border:1px solid #262D38;display:flex;flex-direction:column;gap:8px">
+                  <div style="font-weight:600;font-size:14px">{{k.title}}</div>
+                  <div class="mono" style="color:#98A2B1;font-size:12px">{{k.repo}}</div>
+                  <sc-if value="{{ k.hasNow }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:{{k.nowColor}}">
+                      <span class="{{k.dotClass}}" style="width:8px;height:8px;border-radius:50%;background:{{k.nowColor}};flex:none" aria-hidden="true"></span>
+                      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{k.now}}</span>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ k.hasDiff }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:8px;border-top:1px solid #262D38">
+                      <span class="mono" style="font-size:12.5px"><span style="color:#62D08F">+{{k.add}}</span> <span style="color:#FF8A7A">−{{k.del}}</span></span>
+                      <span style="color:#98A2B1;font-size:12px">{{k.files}} tiedostoa</span>
+                      <span class="mono" style="color:#7D8796;font-size:12px">{{k.cost}}</span>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ k.hasDep }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;align-items:center;gap:6px;color:#98A2B1;font-size:12px">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+                      {{k.dep}}
+                    </div>
+                  </sc-if>
+                </article>
+              </sc-for>
+            </div>
+          </section>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":980}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const card = (title, repo, o) => Object.assign({ title, repo, hasNow: !!(o && o.now), now: '', nowColor: '#6CB0FF', dotClass: '', hasDiff: !!(o && o.add !== undefined), add: 0, del: 0, files: 0, cost: '', hasDep: !!(o && o.dep), dep: '' }, o || {}, { hasNow: !!(o && o.now), hasDiff: !!(o && o.add !== undefined), hasDep: !!(o && o.dep) });
+    const cols = [
+      { name: 'Inbox', color: '#7D8796', limit: '', cards: [card('Muistutussähköpostit tilauksista', 'kauppa-api'), card('Tumma teema asetuksiin', 'kauppa-web')] },
+      { name: 'Tarkennus', color: '#6CB0FF', limit: '', cards: [card('Hakutulosten suodattimet', 'kauppa-web', { now: 'Agentti laatii suunnitelmaa', dotClass: 'live' })] },
+      { name: 'Valmis aloitettavaksi', color: '#98A2B1', limit: 'jono 2', cards: [card('Päivitä riippuvuudet ja korjaa varoitukset', 'kauppa-api', { dep: 'Odottaa: Tilausten CSV-vienti (suunnitelma)' })] },
+      { name: 'Työssä', color: '#6CB0FF', limit: '3 / 4', cards: [
+        card('Kirjautumissivu ja istunnonhallinta', 'kauppa-web', { now: 'Muokkaa src/auth/session.ts', dotClass: 'live', add: 182, del: 14, files: 5, cost: '$0.84' }),
+        card('Päivitä riippuvuudet ja korjaa varoitukset', 'kauppa-api', { now: 'Ajaa testit: npm test', dotClass: 'live', add: 352, del: 330, files: 2, cost: '$0.22' })] },
+      { name: 'Odottaa sinua', color: '#F5B94E', limit: '', cards: [
+        card('Tilausten CSV-vienti', 'kauppa-api', { now: 'Kysymys: puolipiste vai pilkku?', nowColor: '#F5B94E', add: 41, del: 0, files: 1, cost: '$0.31' }),
+        card('Aseta projektin pohja: Next.js, TypeScript, Vitest, README', 'harjoitus', { now: 'Lupakysely: npm install vitest', nowColor: '#FF8A7A', add: 61, del: 0, files: 4, cost: '$0.19' })] },
+      { name: 'Katselmointi', color: '#B9A2FF', limit: '', cards: [
+        card('Lisää alennusfunktio', 'harjoitus', { now: 'Ei löydöksiä, valmis mergettäväksi', nowColor: '#B9A2FF', add: 4, del: 0, files: 1, cost: '$0.03' }),
+        card('Raporttinäkymän sivutus', 'kauppa-web', { now: 'Katselmointi epäonnistui', nowColor: '#FF8A7A', add: 140, del: 21, files: 3, cost: '$0.57' })] },
+      { name: 'Valmis', color: '#62D08F', limit: '', cards: [card('Käyttäjähaun virheilmoitus', 'kauppa-web', { add: 22, del: 3, files: 2, cost: '$0.12' })] }
+    ];
+    cols.forEach((c) => { c.n = c.cards.length; });
+    return {
+      repos: [
+        { name: 'Kaikki', count: 11, on: true, bg: '#1B2129', bd: '#3A4452' },
+        { name: 'kauppa-web', count: 5, on: false, bg: 'transparent', bd: '#262D38' },
+        { name: 'kauppa-api', count: 4, on: false, bg: 'transparent', bd: '#262D38' },
+        { name: 'harjoitus', count: 2, on: false, bg: 'transparent', bd: '#262D38' }
+      ],
+      cols
+    };
+  }
+}
+</script>
+</body>
+</html>

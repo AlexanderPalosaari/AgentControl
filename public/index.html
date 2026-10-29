@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentControl</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<aside id="side">
+  <div class="brand">
+    <svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="#6CB0FF" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="20" height="20" rx="4"/><path d="M8 13h4l2-4 2 8 2-4"/></svg>
+    AgentControl
+  </div>
+  <nav class="nav" aria-label="Näkymät">
+    <a href="#/keskus" data-view="keskus"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>Komentokeskus</a>
+    <a href="#/taulu" data-view="taulu"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10" rx="1"/><rect x="17" y="4" width="4" height="13" rx="1"/></svg>Taulu</a>
+    <a href="#/riippuvuudet" data-view="riippuvuudet"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="2.5"/><circle cx="19" cy="6" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="M7.5 12H11a3 3 0 0 0 3-3V8.5a2.5 2.5 0 0 1 2.5-2.5M11 12a3 3 0 0 1 3 3v.5a2.5 2.5 0 0 0 2.5 2.5"/></svg>Riippuvuudet</a>
+    <a href="#/muutokset" data-view="muutokset"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 8.5v7M8.5 6H13a3 3 0 0 1 3 3v.5"/></svg>Muutokset <span id="nav-changes" class="badge" hidden></span></a>
+    <a href="#/asetukset" data-view="asetukset"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>Asetukset</a>
+  </nav>
+  <section class="side-box" aria-label="Rinnakkaisuus">
+    <div class="split"><span class="kicker">Rinnakkaisuus</span><span class="mono" id="disp-count"></span></div>
+    <div id="disp-bars" class="bars" aria-hidden="true"></div>
+    <div id="disp" class="muted"></div>
+    <button id="disp-toggle" type="button"></button>
+  </section>
+  <section id="projects-box" aria-label="Projektit" style="display:none">
+    <div class="kicker">Projektit</div>
+    <div id="projects"></div>
+  </section>
+  <button id="log-toggle" type="button" title="Mitä sovelluksessa tapahtuu: kortit, agentit, tarkennukset, projektit, ohjaaja ja virheet. Säilyy käynnistysten yli.">Tapahtumaloki</button>
+</aside>
+<div id="content">
+  <header class="top">
+    <div>
+      <h1 id="view-title">Komentokeskus</h1>
+      <p class="muted" id="sub"></p>
+    </div>
+    <div class="top-actions">
+      <button id="add-project" type="button" title="Lisää projektiksi kansio, jossa on jo olemassa oleva git-repo">Lisää olemassa oleva</button>
+      <button id="new-project" type="button" title="Uusi git-repo (paikallinen tai GitHub), suunnitelma ja tehtäväkortit kuvauksesta">Uusi projekti</button>
+      <button class="primary" id="new" type="button">+ Uusi kortti</button>
+    </div>
+  </header>
+  <section id="next" aria-label="Sinun vuorosi"></section>
+  <section id="stats" aria-label="Yhteenveto"></section>
+  <div id="voice-status" class="muted"></div>
+  <section id="agents" aria-label="Agentit"></section>
+  <section id="changes" aria-label="Muutokset"></section>
+  <section id="graph" aria-label="Riippuvuudet"></section>
+  <section id="settings" aria-label="Asetukset">
+    <div class="group" id="set-runner"></div>
+    <div class="group" id="set-usage"></div>
+    <div class="group" id="set-projects"></div>
+    <div class="group">
+      <h2>Ilmoitukset ja puheohjaus</h2>
+      <p class="muted">Nämä koskevat vain tätä selainta ja säilyvät sen muistissa.</p>
+      <div class="srow"><div><b>Selainilmoitukset</b><span class="muted">Ilmoitus, kun kortti odottaa sinua tai on katselmoitavana.</span></div>
+        <button id="notify-toggle" type="button"></button></div>
+      <div class="srow"><div><b>Puheohjaus</b><span class="muted">Komenna ohjaajaa puhumalla. Sano "komennot" nähdäksesi kaikki.</span></div>
+        <button id="voice-toggle" type="button">Puheohjaus: pois</button></div>
+      <div class="srow"><div><b>Herätesana</b><span class="muted">Puhe tulkitaan komennoksi vain, kun se alkaa sanalla "agentti".</span></div>
+        <button id="wake-toggle" type="button"></button></div>
+      <div class="srow"><div><b>Vastaa ääneen</b><span class="muted">Ohjelma lukee vastaukset ja agentin kysymykset.</span></div>
+        <button id="tts-toggle" type="button"></button></div>
+    </div>
+    <div class="group" id="set-keep"></div>
+  </section>
+  <main id="board"></main>
+  <div id="bottom">
+    <section id="events" aria-label="Tapahtumat"></section>
+  </div>
+</div>
+<aside id="chat-dock" aria-label="Ohjaaja">
+  <section id="cmd" aria-label="Komennot">
+    <div class="chead2"><h2>Ohjaaja</h2><span class="muted">Komenna agentteja puhumalla tai kirjoittamalla</span></div>
+    <div id="cmd-log" aria-live="polite"></div>
+    <div id="cmd-ask"></div>
+    <form id="cmd-form" class="row" autocomplete="off">
+      <input id="cmd-input" maxlength="2000" placeholder='Kerro ohjaajalle mitä tehdään, esim. "luo kortit A ja B" (pikanäppäin /)'>
+      <button class="primary" type="submit">Lähetä</button>
+    </form>
+  </section>
+</aside>
+
+<dialog id="dlg">
+  <form method="dialog" id="form">
+    <h2 style="margin-top:0">Uusi kortti</h2>
+    <label for="f-title">Otsikko</label>
+    <input id="f-title" required maxlength="200">
+    <label for="f-brief">Kuvaus</label>
+    <textarea id="f-brief"></textarea>
+    <div class="paste-hint">Kuvan voi liittää Ctrl+V:llä (esim. kuvakaappaus).</div>
+    <div id="f-images" class="thumbs"></div>
+    <label for="f-repos">Repot (pilkulla erotettuna)</label>
+    <input id="f-repos" placeholder="repo-a, repo-b">
+    <div id="repo-list" class="chips"></div>
+    <label for="f-priority">Prioriteetti</label>
+    <select id="f-priority"></select>
+    <label for="f-after">Riippuu kortista</label>
+    <select id="f-after"></select>
+    <label for="f-after-kind">Mitä siitä odotetaan</label>
+    <select id="f-after-kind">
+      <option value="done">Toteutus valmis (Done)</option>
+      <option value="planned">Suunnitelma hyväksytty (Ready tai pidemmällä)</option>
+    </select>
+    <div id="error"></div>
+    <div class="actions">
+      <button type="button" id="cancel">Peruuta</button>
+      <button class="primary" type="submit">Luo</button>
+    </div>
+  </form>
+</dialog>
+<dialog id="pdlg">
+  <div class="row" style="justify-content:space-between">
+    <h2 id="p-title" style="margin:0">Uusi projekti</h2>
+    <button id="p-close" type="button">Sulje</button>
+  </div>
+  <div id="p-body" class="pform"></div>
+  <div id="p-error" class="err" style="white-space:pre-wrap;margin-top:8px"></div>
+</dialog>
+<dialog id="detail">
+  <div class="row" style="justify-content:space-between">
+    <h2 id="d-title"></h2>
+    <button id="d-close" type="button">Sulje</button>
+  </div>
+  <div class="muted" id="d-meta"></div>
+  <section id="d-brief-sec"><h3>Kuvaus</h3><div class="pre" id="d-brief"></div></section>
+  <section><h3>Kuvat</h3><div id="d-images" class="thumbs"></div><div class="paste-hint">Liitä kuva tähän korttiin Ctrl+V:llä. Kortin agentit näkevät kuvat.</div></section>
+  <section id="d-run"></section>
+  <section id="d-diff"></section>
+  <section id="d-refine"></section>
+  <section><h3>Live</h3><div class="pre" id="live"></div></section>
+</dialog>
+<dialog id="cdlg" aria-labelledby="c-title">
+  <h2 id="c-title" style="margin:0 0 10px;font-size:19px"></h2>
+  <div id="c-text" style="white-space:pre-wrap;word-break:break-word"></div>
+  <label id="c-check" class="c-check"><input type="checkbox"> <span></span></label>
+  <div class="actions"><button type="button" id="c-cancel">Peruuta</button><button type="button" class="primary" id="c-ok">OK</button></div>
+</dialog>
+<aside id="logpane" aria-label="Tapahtumaloki" hidden>
+  <div class="log-head">
+    <strong>Tapahtumaloki</strong>
+    <select id="log-filter" title="Näytä vain">
+      <option value="">Kaikki</option>
+      <option value="agent,review,refine">Agentit</option>
+      <option value="card">Kortit</option>
+      <option value="project">Projektit</option>
+      <option value="ohjaaja">Ohjaaja</option>
+      <option value="pr">Pull requestit</option>
+      <option value="!problems">Virheet ja odottavat</option>
+    </select>
+    <button type="button" id="log-close">Sulje</button>
+  </div>
+  <div id="log-list"></div>
+</aside>
+<div id="toast"></div>
+
+<script type="module" src="/js/imports.js"></script>
+<script defer src="/js/core.js"></script>
+<script defer src="/js/centre.js"></script>
+<script defer src="/js/changes.js"></script>
+<script defer src="/js/usage.js"></script>
+<script defer src="/js/settings.js"></script>
+<script defer src="/js/overview.js"></script>
+<script defer src="/js/cards.js"></script>
+<script defer src="/js/newcard.js"></script>
+<script defer src="/js/projects.js"></script>
+<script defer src="/js/detail.js"></script>
+<script defer src="/js/voice-ui.js"></script>
+<script defer src="/js/command.js"></script>
+<script defer src="/js/voice-control.js"></script>
+<script defer src="/js/main.js"></script>
+</body>
+</html>
