@@ -387,3 +387,126 @@ describe('prompt', () => {
     assert.equal(getRun(plain.id).model, null);
   });
 });
+
+describe('base branch', () => {
+  const demo = () => join(reposRoot, 'demo');
+  before(() => {
+    // A long-lived branch on origin that main does not have, like features/maui-dev.
+    sh(demo(), 'checkout', '-q', '-b', 'tmp-dev', 'origin/main');
+    writeFileSync(join(demo(), 'dev.txt'), 'dev only\n');
+    sh(demo(), 'add', 'dev.txt');
+    sh(demo(), 'commit', '-qm', 'dev work');
+    sh(demo(), 'push', '-q', 'origin', 'HEAD:features/dev');
+    sh(demo(), 'checkout', '-q', 'main');
+    sh(demo(), 'branch', '-q', '-D', 'tmp-dev');
+  });
+
+  test('a card with a base branch forks from it, and the agent is told where the work goes', async () => {
+    const card = await ready({ title: 'Dev feature', baseBranch: 'origin/features/dev' });
+    assert.equal(card.baseBranch, 'features/dev', 'kept the way git names the branch');
+    await runner.tick();
+    const wt = getRun(card.id).worktrees[0];
+    assert.equal(wt.base, 'origin/features/dev');
+    assert.equal(wt.forkSha, sh(demo(), 'rev-parse', 'origin/features/dev'));
+    assert.equal(sh(wt.path, 'rev-parse', 'HEAD'), wt.forkSha);
+    assert.ok(existsSync(join(wt.path, 'dev.txt')), 'the code of the base branch, not main');
+    assert.throws(() => sh(wt.path, 'rev-parse', '--abbrev-ref', '@{u}'), 'no upstream until it is pushed');
+    const prompt = readFileSync(cardFile(card.id, 'prompt.md'), 'utf8');
+    assert.match(prompt, /forked from origin\/features\/dev; the work goes into features\/dev/);
+    assert.match(prompt, /Never rebase, reset or recreate it onto another branch/);
+
+    writeFileSync(join(wt.path, 'feature.txt'), 'x\n');
+    sh(wt.path, 'add', '.');
+    sh(wt.path, 'commit', '-qm', 'feature');
+    const [r] = (await call('GET', `/api/cards/${card.id}/diff`)).body.repos;
+    assert.equal(r.base, 'origin/features/dev');
+    assert.match(r.stat, /feature\.txt/);
+    assert.doesNotMatch(r.stat, /dev\.txt/, 'the diff is against the base branch only');
+  });
+
+  test('a base branch must exist and be a branch name, and it is fixed once the work has started', async () => {
+    const missing = await call('POST', '/api/cards', { title: 'x', repos: ['demo'], baseBranch: 'features/nope' });
+    assert.equal(missing.status, 400);
+    assert.match(missing.body.error, /features\/nope was not found in demo/);
+    assert.equal((await call('POST', '/api/cards', { title: 'x', repos: ['demo'], baseBranch: 'a..b' })).status, 400);
+
+    const inbox = await newCard();
+    const set = await call('PATCH', `/api/cards/${inbox.id}`, { baseBranch: 'features/dev' });
+    assert.equal(set.body.baseBranch, 'features/dev');
+    assert.equal((await call('PATCH', `/api/cards/${inbox.id}`, { baseBranch: '' })).body.baseBranch, null, 'empty goes back to the default');
+
+    const card = await ready();
+    await runner.tick();
+    const locked = await call('PATCH', `/api/cards/${card.id}`, { baseBranch: 'features/dev' });
+    assert.equal(locked.status, 400);
+    assert.match(locked.body.error, /already started from the default branch/);
+  });
+
+  test('a project chooses the target branch of its repository; a card can still choose its own', async () => {
+    assert.equal((await call('POST', '/api/projects', { name: 'proj' })).status, 201);
+    const repo = join(reposRoot, 'proj');
+    sh(repo, 'checkout', '-q', '-b', 'dev');
+    writeFileSync(join(repo, 'd.txt'), 'd\n');
+    sh(repo, 'add', '.');
+    sh(repo, 'commit', '-qm', 'dev');
+    sh(repo, 'checkout', '-q', 'main');
+
+    assert.equal((await call('POST', '/api/projects/proj/base', { repo: 'proj', branch: 'nope' })).status, 400);
+    const set = await call('POST', '/api/projects/proj/base', { repo: 'proj', branch: 'dev' });
+    assert.equal(set.status, 200);
+    assert.deepEqual([set.body[0].target, set.body[0].base, set.body[0].behind], ['dev', 'dev', 1], 'main is measured against the target branch');
+
+    const inherits = await ready({ title: 'In proj', repos: ['proj'] });
+    const own = await ready({ title: 'Own base', repos: ['proj'], baseBranch: 'main' });
+    await runner.tick();
+    assert.equal(getRun(inherits.id).worktrees[0].base, 'dev');
+    assert.ok(existsSync(join(getRun(inherits.id).worktrees[0].path, 'd.txt')));
+    assert.equal(getRun(own.id).worktrees[0].base, 'main');
+
+    const cleared = await call('POST', '/api/projects/proj/base', { repo: 'proj', branch: '' });
+    assert.equal(cleared.body[0].target, null);
+  });
+
+  test('a retry refuses a worktree that was started from another base', async () => {
+    const card = await ready({ title: 'Moves base' });
+    await runner.tick();
+    await call('POST', `/api/cards/${card.id}/run/stop`);
+    writeFileSync(cardFile(card.id, 'run.json'), JSON.stringify({ ...getRun(card.id), state: 'failed', agentId: null })); // as after a failed start
+    await server.store.update(card.id, { baseBranch: 'features/dev' });
+    assert.equal((await call('POST', `/api/cards/${card.id}/run/retry`)).status, 202);
+    await runner.tick();
+    const after = getRun(card.id);
+    assert.equal(after.state, 'failed');
+    assert.match(after.error, /started from origin\/main, but the card now targets origin\/features\/dev/);
+  });
+
+  test('conflicts with a pull request\'s target are merged from origin, freshly fetched', async () => {
+    const card = await ready({ title: 'Clashes', baseBranch: 'features/dev' });
+    await runner.tick();
+    const { worktrees: [wt], agentId } = getRun(card.id);
+    writeFileSync(join(wt.path, 'dev.txt'), 'mine\n');
+    sh(wt.path, 'commit', '-qam', 'mine');
+    writeFileSync(cardFile(card.id, 'report.md'), 'done');
+    setJob(agentId, { status: 'idle', state: 'done' });
+    await runner.tick();
+    assert.equal((await getCard(card.id)).status, 'review');
+    writeFileSync(cardFile(card.id, 'prs.json'), JSON.stringify([{ repo: 'demo', branch: wt.branch, target: 'features/dev', id: 1, state: 'active', mergeStatus: 'conflicts' }]));
+
+    // Someone else changes the same line on origin; this clone has not fetched it, and its own features/dev is stale.
+    const other = join(dir, 'other');
+    sh(dir, 'clone', '-q', '-b', 'features/dev', join(dir, 'origin.git'), 'other');
+    writeFileSync(join(other, 'dev.txt'), 'theirs\n');
+    sh(other, 'commit', '-qam', 'theirs');
+    sh(other, 'push', '-q', 'origin', 'features/dev');
+    sh(demo(), 'branch', '-q', 'features/dev', wt.forkSha);
+
+    const res = await call('POST', `/api/cards/${card.id}/resolve-conflicts`);
+    assert.equal(res.status, 202, JSON.stringify(res.body));
+    assert.deepEqual(res.body.resolving, ['dev.txt']);
+    assert.equal(sh(wt.path, 'rev-parse', 'MERGE_HEAD'), sh(other, 'rev-parse', 'HEAD'), 'origin\'s branch, not the stale local one');
+    assert.match(readFileSync(join(data, 'cards', card.id, 'replies', '1.md'), 'utf8'), /merging origin\/features\/dev: dev\.txt/);
+    sh(wt.path, 'merge', '--abort');
+    sh(demo(), 'branch', '-q', '-D', 'features/dev');
+    await call('GET', '/api/events'); // reading waits for the journal's queued writes, which would outlive the test
+  });
+});

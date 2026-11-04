@@ -78,6 +78,7 @@ document.getElementById('form').addEventListener('submit', async (ev) => {
       title: document.getElementById('f-title').value,
       brief: document.getElementById('f-brief').value,
       repos: document.getElementById('f-repos').value.split(',').map((s) => s.trim()).filter(Boolean),
+      baseBranch: document.getElementById('f-base').value.trim() || null,
       priority: document.getElementById('f-priority').value,
       after: document.getElementById('f-after').value || null,
       afterKind: document.getElementById('f-after-kind').value,

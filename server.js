@@ -5,6 +5,7 @@ import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AFTER_KINDS, ConfirmationError, MANUAL_MOVES, MergeConflictError, NotFoundError, STATUSES, PRIORITIES, ValidationError, canMove, createCardStore } from './lib/cards.js';
+import { resolveBase } from './lib/git.js';
 import { createClaude } from './lib/claude.js';
 import { createRefiner } from './lib/refine.js';
 import { createAgents } from './lib/agents.js';
@@ -46,7 +47,11 @@ export function createApp({ dataDir, token, archiveDays = 30, claude = createCla
   const chatLog = createJournal(join(dataDir, 'chat.jsonl'));
   const log = (kind, text, extra = {}) => journal.add({ kind, text, ...extra });
   const ledger = createUsageLedger(dataDir); // every token spent, by what and for which card or project
-  const store = createCardStore(dataDir, { log });
+  // A card's base branch must be in each of its repositories (an unknown repository is refused later, when it is used).
+  const checkBase = async (card) => {
+    for (const name of card.repos) if (existsSync(repos.path(name))) await resolveBase(repos.path(name), card.baseBranch);
+  };
+  const store = createCardStore(dataDir, { log, checkBase });
   const repos = createRepos({ reposRoot, dataDir }); // where each repository name lives: under reposRoot, or in a folder added as a project
   const explorer = createExplorer({ dataDir, claude, model, effort, ledger, log }); // the code map of each existing project, which its agents get
   const projects = createProjects({ dataDir, reposRoot, repos, store, claude, github, model, effort, ledger, log, mapOf: explorer.mapOf });
@@ -56,8 +61,9 @@ export function createApp({ dataDir, token, archiveDays = 30, claude = createCla
   // A card works in its first repository, and that repository's project (if it is one) chooses the model and effort.
   const projectSettings = (card) => projects.settingsFor(card.repos[0]);
   const projectContext = (card) => explorer.contextFor(card.repos[0]);
-  const refiner = createRefiner({ store, claude, reposRoot, repos, model, effort, projectSettings, projectContext, attachments, ledger, log });
-  const runner = createRunner({ store, agents: createAgents({ claude }), dataDir, reposRoot, repos, refiner, reviewer, attachments, projectSettings, projectContext, ledger, transcripts, log, ...runnerOptions });
+  const projectBase = (repo) => projects.baseFor(repo); // the branch a repository's cards fork from, unless the card chose one
+  const refiner = createRefiner({ store, claude, reposRoot, repos, model, effort, projectSettings, projectContext, projectBase, checkoutsDir: join(dataDir, 'refine-checkouts'), attachments, ledger, log });
+  const runner = createRunner({ store, agents: createAgents({ claude }), dataDir, reposRoot, repos, refiner, reviewer, attachments, projectSettings, projectContext, projectBase, ledger, transcripts, log, ...runnerOptions });
   // Limits saved from the Settings page win over the startup values (environment variables).
   const settingsFile = join(dataDir, 'settings.json');
   try { runner.setLimits(JSON.parse(readFileSync(settingsFile, 'utf8')).runner ?? {}); } catch { /* nothing saved, or unreadable: keep the startup values */ }
@@ -199,7 +205,7 @@ export function createApp({ dataDir, token, archiveDays = 30, claude = createCla
 
       if (url.pathname === '/api/projects/existing' && req.method === 'POST') return send(res, 201, await projects.addExisting(await readJson(req)));
 
-      const pj = url.pathname.match(/^\/api\/projects\/([^/]+)(?:\/(source-control|settings|plan|tasks|delete|map|explore|audit|audit\/run|audit\/ticket|commits|branches|git|hidden))?$/);
+      const pj = url.pathname.match(/^\/api\/projects\/([^/]+)(?:\/(source-control|settings|plan|tasks|delete|map|explore|audit|audit\/run|audit\/ticket|commits|branches|base|git|hidden))?$/);
       if (pj) {
         let name = '';
         try { name = decodeURIComponent(pj[1]); } catch { /* malformed: not found below */ }
@@ -214,6 +220,7 @@ export function createApp({ dataDir, token, archiveDays = 30, claude = createCla
         if (pj[2] === 'git' && req.method === 'POST') return send(res, 200, await projects.gitRead(name, await readJson(req)));
         if (pj[2] === 'hidden' && req.method === 'POST') return send(res, 200, await projects.setHidden(name, await readJson(req)));
         if (pj[2] === 'branches' && req.method === 'POST') return send(res, 200, await projects.switchBranch(name, await readJson(req)));
+        if (pj[2] === 'base' && req.method === 'POST') return send(res, 200, await projects.setBase(name, await readJson(req)));
         if (pj[2] === 'branches' && req.method === 'GET') return send(res, 200, await projects.branches(name, { fetch: url.searchParams.get('fetch') === '1' }));
         if (pj[2] === 'audit' && req.method === 'GET') return send(res, 200, await auditor.get(name));
         if (pj[2] === 'audit' && req.method === 'POST') { await projects.setAudit(name, await readJson(req)); return send(res, 200, await auditor.get(name)); }
@@ -272,11 +279,14 @@ export function createApp({ dataDir, token, archiveDays = 30, claude = createCla
       const dm = url.pathname.match(/^\/api\/cards\/([^/]+)\/diff$/);
       if (dm && req.method === 'GET') return send(res, 200, await runner.diff(dm[1]));
 
-      const pr = url.pathname.match(/^\/api\/cards\/([^/]+)\/pr$/);
-      if (pr && req.method === 'POST') return send(res, 200, await publisher.publish(pr[1]));
+      const pr = url.pathname.match(/^\/api\/cards\/([^/]+)\/pr(\/update)?$/);
+      if (pr && req.method === 'POST') {
+        const { confirmed } = await readJson(req);
+        return send(res, 200, pr[2] ? await publisher.update(pr[1], { confirmed: confirmed === true }) : await publisher.publish(pr[1], { confirmed: confirmed === true }));
+      }
 
       const mg = url.pathname.match(/^\/api\/cards\/([^/]+)\/merge$/);
-      if (mg && req.method === 'POST') return send(res, 200, await publisher.mergeLocal(mg[1]));
+      if (mg && req.method === 'POST') return send(res, 200, await publisher.mergeLocal(mg[1], { confirmed: (await readJson(req)).confirmed === true }));
 
       const rc = url.pathname.match(/^\/api\/cards\/([^/]+)\/resolve-conflicts$/);
       if (rc && req.method === 'POST') return send(res, 202, await runner.resolveConflicts(rc[1]));
@@ -284,7 +294,7 @@ export function createApp({ dataDir, token, archiveDays = 30, claude = createCla
       const run = url.pathname.match(/^\/api\/cards\/([^/]+)\/run(?:\/(answer|stop|retry|attach))?$/);
       if (run) {
         const [, id, action] = run;
-        if (!action && req.method === 'GET') return send(res, 200, { ...await runner.details(id), prs: await publisher.get(id), localMerge: await publisher.canMergeLocal(id) });
+        if (!action && req.method === 'GET') return send(res, 200, { ...await runner.details(id), prs: await publisher.get(id), localMerge: await publisher.canMergeLocal(id), publish: await publisher.preview(id) });
         if (action === 'attach' && req.method === 'POST') return send(res, 200, await runner.attach(id));
         if (action && req.method === 'POST') {
           const out = action === 'answer' ? await runner.answer(id, await readJson(req)) : action === 'stop' ? await runner.stop(id) : await runner.retry(id);

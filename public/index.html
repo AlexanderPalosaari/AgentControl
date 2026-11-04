@@ -133,6 +133,8 @@
     <label for="f-repos">Repot (pilkulla erotettuna)</label>
     <input id="f-repos" placeholder="repo-a, repo-b">
     <div id="repo-list" class="chips"></div>
+    <label for="f-base">Kohdehaara</label>
+    <input id="f-base" placeholder="esim. features/maui-dev (tyhjä = oletus)" title="Haara, josta työ tehdään ja johon pull request menee. Tyhjä = projektin kohdehaara, muuten repon oletushaara." autocomplete="off">
     <label for="f-priority">Prioriteetti</label>
     <select id="f-priority"></select>
     <label for="f-after">Riippuu kortista</label>
@@ -164,6 +166,7 @@
   </div>
   <div class="muted" id="d-meta"></div>
   <section id="d-brief-sec"><h3>Kuvaus</h3><div class="pre" id="d-brief"></div></section>
+  <section id="d-base"></section>
   <section><h3>Kuvat</h3><div id="d-images" class="thumbs"></div><div class="paste-hint">Liitä kuva tähän korttiin Ctrl+V:llä. Kortin agentit näkevät kuvat.</div></section>
   <section id="d-run"></section>
   <section id="d-diff"></section>

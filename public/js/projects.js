@@ -118,7 +118,7 @@ function branchesBox(p) {
   const repos = projectBranches.repos;
   const box = el('div', { style: 'margin-top:6px' });
   if (!repos) return box.append(el('div', { className: 'muted', textContent: 'Luetaan haaroja…' })), box;
-  for (const r of repos) box.append(el('div', {}, el('span', { className: 'mono', textContent: p.workspace ? `${r.repo}: ` : '' }), branchText(r)), branchSwitch(p, r));
+  for (const r of repos) box.append(el('div', {}, el('span', { className: 'mono', textContent: p.workspace ? `${r.repo}: ` : '' }), branchText(r)), branchSwitch(p, r), targetPicker(p, r));
   const again = el('button', { type: 'button', textContent: 'Päivitä', title: 'Hakee etärepon tilan (git fetch) ja lukee haarat uudelleen. Mitään ei muuteta.', style: 'margin-top:6px' });
   again.addEventListener('click', () => loadBranches(p.name, { fetch: true, button: again }));
   box.append(again);
@@ -148,6 +148,39 @@ function branchSwitch(p, r) {
     }
   });
   return el('div', { className: 'row', style: 'gap:6px;margin:2px 0 6px' }, pick, go);
+}
+
+/**
+ * The branch the repository's new cards fork from and whose pull requests go into (a card's own choice wins).
+ * Empty = the repository's default branch. The server checks that the branch exists.
+ */
+function targetPicker(p, r) {
+  const listId = `p-targets-${r.repo}`;
+  const input = el('input', { type: 'text', value: r.target ?? '', placeholder: `oletushaara${r.base && !r.target ? ` (${r.base})` : ''}`, autocomplete: 'off', maxLength: 200, style: 'max-width:280px' });
+  input.setAttribute('list', listId); // `list` is read-only as a property
+  const save = el('button', { type: 'button', textContent: 'Aseta', disabled: true, title: 'Uudet kortit tehdään tästä haarasta ja niiden pull requestit menevät siihen. Jo aloitetut kortit pysyvät haarassaan.' });
+  input.addEventListener('input', () => { save.disabled = input.value.trim() === (r.target ?? ''); });
+  save.addEventListener('click', async () => {
+    save.disabled = input.disabled = true;
+    save.textContent = 'Tarkistetaan…';
+    setPError('');
+    try {
+      const repos = await api(`/api/projects/${encodeURIComponent(p.name)}/base`, { method: 'POST', body: { repo: r.repo, branch: input.value.trim() } });
+      if (openProject !== p.name) return;
+      projectBranches = { name: p.name, repos };
+      projectJson = '';
+      loadProject();
+    } catch (e) {
+      setPError(e.message);
+      save.disabled = input.disabled = false;
+      save.textContent = 'Aseta';
+    }
+  });
+  const options = [...new Set([r.target, r.branch, ...(r.switchable ?? [])].filter(Boolean))];
+  return el('div', { style: 'margin:2px 0 8px' },
+    el('div', { className: 'muted', textContent: 'Korttien kohdehaara (josta työ tehdään ja johon pull request menee):' }),
+    el('datalist', { id: listId }, ...options.map((b) => el('option', { value: b }))),
+    el('div', { className: 'row', style: 'gap:6px' }, input, save));
 }
 
 async function loadBranches(name, { fetch = false, button = null } = {}) {

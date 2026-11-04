@@ -57,10 +57,10 @@ describe('publishing', () => {
   const getCard = async (id) => (await call('GET', `/api/cards/${id}`)).body;
 
   /** A card in review with a real worktree that has one commit, as a finished run would leave it. */
-  async function reviewCard() {
-    const card = (await call('POST', '/api/cards', { title: `Add login ${++cardCount}`, repos: ['demo'] })).body;
+  async function reviewCard(target = null) {
+    const card = (await call('POST', '/api/cards', { title: `Add login ${++cardCount}`, repos: ['demo'], baseBranch: target })).body;
     const repoPath = join(reposRoot, 'demo');
-    const wt = await createWorktree({ repoPath, path: join(data, 'worktrees', card.id, 'demo'), branch: `ac/${card.id}-add-login` });
+    const wt = await createWorktree({ repoPath, path: join(data, 'worktrees', card.id, 'demo'), branch: `ac/${card.id}-add-login`, target });
     writeFileSync(join(wt.path, 'login.js'), 'export const login = () => true;\n');
     sh(wt.path, 'add', '.');
     sh(wt.path, 'commit', '-qm', 'Add login');
@@ -202,6 +202,75 @@ describe('publishing', () => {
     assert.ok(!existsSync(wt.path), 'worktree removed');
     assert.equal(sh(join(reposRoot, 'demo'), 'branch', '--list', wt.branch), '', 'local branch removed');
     assert.equal(JSON.parse(readFileSync(join(data, 'cards', card.id, 'prs.json'), 'utf8'))[0].state, 'completed');
+  });
+
+  test('the pull request goes into the card\'s base branch, and the card view shows where before anything is pushed', async () => {
+    const repoPath = join(reposRoot, 'demo');
+    sh(repoPath, 'push', '-q', 'origin', 'origin/main:refs/heads/features/dev');
+    sh(repoPath, 'fetch', '-q', 'origin');
+    const { card, wt } = await reviewCard('features/dev');
+    assert.equal(wt.base, 'origin/features/dev');
+    const [before] = (await call('GET', `/api/cards/${card.id}/run`)).body.publish;
+    assert.deepEqual([before.branch, before.target, before.commits, before.problems, before.toPush], [wt.branch, 'features/dev', 1, [], null]);
+
+    const [pr] = (await call('POST', `/api/cards/${card.id}/pr`)).body;
+    assert.equal(pr.target, 'features/dev');
+    assert.equal(requests.find((r) => r.method === 'POST').body.targetRefName, 'refs/heads/features/dev');
+  });
+
+  test('a branch that was not made from its target is published only once the person confirms', async () => {
+    const repoPath = join(reposRoot, 'demo');
+    // origin's main moves on, so a branch made from it carries a commit features/dev does not have.
+    const other = join(dir, 'other-main');
+    sh(dir, 'clone', '-q', join(dir, 'origin.git'), 'other-main');
+    writeFileSync(join(other, 'main-only.txt'), 'm\n');
+    sh(other, 'add', '.');
+    sh(other, 'commit', '-qm', 'main only');
+    sh(other, 'push', '-q', 'origin', 'HEAD:main');
+    sh(repoPath, 'fetch', '-q', 'origin');
+    const { card, cardDir } = await reviewCard();
+    const run = JSON.parse(readFileSync(join(cardDir, 'run.json'), 'utf8'));
+    run.worktrees[0].base = 'origin/features/dev'; // as if the work had been moved onto main by hand
+    writeFileSync(join(cardDir, 'run.json'), JSON.stringify(run));
+
+    const shown = (await call('GET', `/api/cards/${card.id}/run`)).body.publish[0];
+    assert.equal(shown.problems.length, 1);
+    assert.match(shown.problems[0], /is not in features\/dev/);
+    const refused = await call('POST', `/api/cards/${card.id}/pr`);
+    assert.equal(refused.status, 409);
+    assert.equal(refused.body.confirm, true);
+    assert.match(refused.body.problems[0], /^demo: /);
+    assert.equal(sh(join(dir, 'origin.git'), 'branch', '--list', run.worktrees[0].branch), '', 'nothing was pushed');
+    assert.equal(requests.filter((r) => r.method === 'POST').length, 0);
+
+    const confirmed = await call('POST', `/api/cards/${card.id}/pr`, { confirmed: true });
+    assert.equal(confirmed.status, 200);
+    assert.equal(confirmed.body[0].target, 'features/dev');
+  });
+
+  test('commits made after the pull request was opened are pushed to it on request', async () => {
+    const { card, wt } = await reviewCard();
+    const [pr] = (await call('POST', `/api/cards/${card.id}/pr`)).body;
+    assert.equal((await call('POST', `/api/cards/${card.id}/pr/update`)).body.pushed.length, 0, 'nothing new yet');
+
+    writeFileSync(join(wt.path, 'login.js'), 'export const login = () => false;\n');
+    sh(wt.path, 'commit', '-qam', 'Fix after review');
+    assert.equal((await call('GET', `/api/cards/${card.id}/run`)).body.publish[0].toPush, 1);
+    const res = await call('POST', `/api/cards/${card.id}/pr/update`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.pushed, [{ repo: 'demo', branch: wt.branch, commits: 1 }]);
+    assert.equal(sh(join(dir, 'origin.git'), 'rev-parse', wt.branch), sh(wt.path, 'rev-parse', 'HEAD'));
+    assert.equal((await call('GET', `/api/cards/${card.id}/run`)).body.publish[0].toPush, 0);
+    assert.equal(requests.filter((r) => r.method === 'POST').length, 1, 'the same pull request, no new one');
+
+    sh(wt.path, 'commit', '-q', '--amend', '-m', 'Rewritten');
+    const rewritten = await call('POST', `/api/cards/${card.id}/pr/update`);
+    assert.equal(rewritten.status, 400);
+    assert.match(rewritten.body.error, /refused the push/);
+
+    prsOnServer.get(pr.id).mergeStatus = 'conflicts';
+    await publisher.poll({ force: true });
+    assert.equal((await call('GET', `/api/cards/${card.id}/run`)).body.prs[0].mergeStatus, 'conflicts', 'kept for the card view');
   });
 
   test('an abandoned pull request keeps the card in review and its worktree', async () => {

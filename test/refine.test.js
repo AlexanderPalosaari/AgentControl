@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -168,6 +170,42 @@ describe('refinement', () => {
     await server.refiner.settled();
     assert.equal((await call('POST', `/api/cards/${card.id}/refine/approve`, {})).status, 400);
     assert.equal((await call('POST', `/api/cards/${card.id}/refine/approve`, { force: true })).body.status, 'ready');
+  });
+
+  test('with a base branch the refiner reads a checkout of it, which goes once the plan is approved', async () => {
+    const sh = (cwd, ...args) => execFileSync('git', args, { cwd, stdio: 'pipe' }).toString().trim();
+    sh(dir, 'init', '-q', '--bare', '-b', 'main', 'origin-g.git');
+    sh(reposRoot, 'clone', '-q', join(dir, 'origin-g.git'), 'repo-g');
+    const repo = join(reposRoot, 'repo-g');
+    await writeFile(join(repo, 'a.txt'), 'main\n');
+    sh(repo, 'add', '.');
+    sh(repo, 'commit', '-qm', 'init');
+    sh(repo, 'push', '-q', 'origin', 'HEAD:main');
+    await writeFile(join(repo, 'dev.txt'), 'dev\n');
+    sh(repo, 'add', '.');
+    sh(repo, 'commit', '-qm', 'dev');
+    sh(repo, 'push', '-q', 'origin', 'HEAD:features/dev');
+    sh(repo, 'reset', '-q', '--hard', 'origin/main'); // the folder itself stays on main
+
+    const card = await newCard({ repos: ['repo-g'], baseBranch: 'features/dev' });
+    await call('POST', `/api/cards/${card.id}/refine/start`);
+    await server.refiner.settled();
+    const checkout = join(dir, 'data', 'refine-checkouts', card.id, 'repo-g');
+    const first = (await invocations()).at(-1);
+    assert.equal(first.cwd, checkout);
+    assert.equal(sh(checkout, 'rev-parse', 'HEAD'), sh(repo, 'rev-parse', 'origin/features/dev'));
+    assert.ok(existsSync(join(checkout, 'dev.txt')), 'the code the work will start from');
+    assert.match(first.prompt, /repo-g: .* = origin\/features\/dev, the branch the work will start from/);
+
+    await call('POST', `/api/cards/${card.id}/refine/answer`, { answers: { q1: 'A' } });
+    await server.refiner.settled();
+    const second = (await invocations()).at(-1);
+    assert.equal(second.cwd, checkout, 'the session stays in its folder');
+    assert.equal(second.args[second.args.indexOf('--resume') + 1], 'fake-session');
+
+    assert.equal((await call('POST', `/api/cards/${card.id}/refine/approve`, {})).body.status, 'ready');
+    assert.ok(!existsSync(checkout), 'removed once the plan is approved');
+    assert.doesNotMatch(sh(repo, 'worktree', 'list'), /refine-checkouts/);
   });
 
   test('a turn cut off by a restart is re-run on start-up', async () => {

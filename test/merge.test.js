@@ -141,6 +141,29 @@ describe('accepting work into a local repository', () => {
     await server.store.update(card.id, { status: 'archive' });
   });
 
+  test('work whose branch did not start from the target is accepted only once the person confirms', async () => {
+    const { card } = await reviewCard('elsewhere.js');
+    const repo = join(reposRoot, 'local');
+    sh(repo, 'checkout', '-q', '-b', 'side');
+    writeFileSync(join(repo, 'side.txt'), 'side\n');
+    sh(repo, 'add', '.');
+    sh(repo, 'commit', '-qm', 'side');
+    const side = sh(repo, 'rev-parse', 'HEAD');
+    sh(repo, 'checkout', '-q', 'main');
+    const runFile = join(data, 'cards', card.id, 'run.json');
+    const run = JSON.parse(readFileSync(runFile, 'utf8'));
+    writeFileSync(runFile, JSON.stringify({ ...run, worktrees: [{ ...run.worktrees[0], forkSha: side }] }));
+    const tip = sh(repo, 'rev-parse', 'HEAD');
+
+    const refused = await call('POST', `/api/cards/${card.id}/merge`);
+    assert.equal(refused.status, 409);
+    assert.equal(refused.body.confirm, true);
+    assert.match(refused.body.error, /no longer starts from where it was made/);
+    assert.equal(sh(repo, 'rev-parse', 'HEAD'), tip, 'nothing merged');
+    assert.equal((await call('POST', `/api/cards/${card.id}/merge`, { confirmed: true })).status, 200);
+    sh(repo, 'branch', '-q', '-D', 'side');
+  });
+
   test('conflicts can only be handed to the agent for finished work', async () => {
     const card = (await call('POST', '/api/cards', { title: 'Ei ajettu', repos: ['local'] })).body;
     const res = await call('POST', `/api/cards/${card.id}/resolve-conflicts`);

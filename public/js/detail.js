@@ -46,48 +46,85 @@ async function runAct(path, body) {
   await loadRun();
 }
 
-/** Squash-merges a reviewed card into the project's main branch. true = merged, false = failed (told to the person), null = cancelled. */
+const targetOf = (w) => w.base.replace(/^origin\//, ''); // the branch a worktree's work goes into
+const targetsOf = (run) => [...new Set(run.worktrees.map(targetOf))].join(', ');
+const commitCount = (n) => `${n} commit${n === 1 ? '' : 'tia'}`;
+
+/**
+ * POSTs `path`. When the server asks to confirm first (409: the branch may carry other work than the card's),
+ * shows why and sends it again confirmed. Resolves to the answer, or null when the person cancelled.
+ */
+async function postConfirmed(path, title) {
+  try {
+    return await api(path, { method: 'POST', body: {} });
+  } catch (e) {
+    if (e.status !== 409 || !e.data?.confirm) throw e;
+    const text = `${(e.data.problems ?? [e.message]).join('\n')}\n\nHaarassa voi olla muutakin kuin tämän kortin työtä. Tarkista muutokset ennen kuin jatkat.`;
+    if (!(await confirmBox({ title, text, ok: 'Jatka silti', danger: true }))) return null;
+    return api(path, { method: 'POST', body: { confirmed: true } });
+  }
+}
+
+/** Asks the agent to merge the target branch into its work and resolve the conflicts. */
+async function resolveConflicts(c, files, target) {
+  const go = await confirmBox({
+    title: `Työ on ristiriidassa haaran ${target} kanssa`,
+    text: `Haaraan ${target} on jo yhdistetty muuta työtä, joka muuttaa samoja kohtia${files?.length ? ` tiedostoissa:\n${files.join('\n')}` : '.'}\n\nAgentti voi ratkaista konfliktit itse: se yhdistää haaran ${target} työhönsä, korjaa ristiriidat ja ajaa testit. Sen jälkeen työ katselmoidaan uudelleen ja voit hyväksyä sen (tai päivittää pull requestin) tavalliseen tapaan.`,
+    ok: 'Anna agentin ratkaista',
+  });
+  if (!go) return false;
+  try {
+    await api(`/api/cards/${c.id}/resolve-conflicts`, { method: 'POST', body: {} });
+    reply(`Agentti ratkaisee konfliktit: ${c.title}. Työ palaa katselmointiin, kun se on valmis.`);
+  } catch (err) {
+    await confirmBox({ title: 'Konfliktien ratkaisu ei onnistunut', text: err.message, ok: 'Selvä' });
+  }
+  return false; // not merged: the card goes back to the agent, the view just refreshes
+}
+
+/** Squash-merges a reviewed card into its target branch. true = merged, false = failed (told to the person), null = cancelled. */
 async function mergeLocal(c, run, commitMessage, button) {
   const first = String(commitMessage ?? c.title).split('\n')[0];
   const repos = run.worktrees.map((w) => w.repo).join(', ');
+  const targets = targetsOf(run);
   if (!(await confirmBox({
     title: 'Hyväksy työ projektiin',
-    text: `Agentin työ yhdistetään projektin (${repos}) pääsivuun yhdeksi commitiksi:\n"${first}"\n\nKortti siirtyy Doneen ja agentin työkansio poistetaan. Mitään ei työnnetä minnekään.\n\nProjektin kansion pitää olla main-haarassa ja ilman tallentamattomia muutoksia.`,
+    text: `Agentin työ yhdistetään projektin (${repos}) haaraan ${targets} yhdeksi commitiksi:\n"${first}"\n\nKortti siirtyy Doneen ja agentin työkansio poistetaan. Mitään ei työnnetä minnekään.\n\nProjektin kansion pitää olla haarassa ${targets} ja ilman tallentamattomia muutoksia.`,
     ok: 'Hyväksy ja yhdistä',
   }))) return null;
   button.disabled = true;
   try {
-    await api(`/api/cards/${c.id}/merge`, { method: 'POST', body: {} });
+    if (await postConfirmed(`/api/cards/${c.id}/merge`, 'Hyväksytäänkö työ silti?') === null) { button.disabled = false; return null; }
     return true;
   } catch (e) {
     button.disabled = false;
-    if (e.data?.conflict) { // other cards were merged first and touched the same lines: the agent can sort it out
-      const go = await confirmBox({
-        title: 'Työ on ristiriidassa pääsivun kanssa',
-        text: `Pääsivulle on jo yhdistetty muuta työtä, joka muuttaa samoja kohtia tiedostoissa:\n${e.data.files.join('\n')}\n\nAgentti voi ratkaista konfliktit itse: se yhdistää pääsivun työhönsä, korjaa ristiriidat ja ajaa testit. Sen jälkeen työ katselmoidaan uudelleen ja voit hyväksyä sen tavalliseen tapaan. Mitään ei ole muutettu.`,
-        ok: 'Anna agentin ratkaista',
-      });
-      if (!go) return false;
-      try {
-        await api(`/api/cards/${c.id}/resolve-conflicts`, { method: 'POST', body: {} });
-        reply(`Agentti ratkaisee konfliktit: ${c.title}. Työ palaa katselmointiin, kun se on valmis.`);
-        return false; // not merged: the card goes back to the agent, the view just refreshes
-      } catch (err) {
-        await confirmBox({ title: 'Konfliktien ratkaisu ei onnistunut', text: err.message, ok: 'Selvä' });
-        return false;
-      }
-    }
+    if (e.data?.conflict) return resolveConflicts(c, e.data.files, targets); // other cards went in first and touched the same lines
     await confirmBox({ title: 'Yhdistäminen ei onnistunut', text: e.message, ok: 'Selvä' });
     return false;
   }
 }
 
 /** Pushes the card's branches to Azure DevOps and opens the pull requests. Same return values as mergeLocal. */
-async function openPullRequest(c, run, button) {
-  if (!(await confirmBox({ title: 'Luo pull request', text: `Tämä lähettää haaran (${run.worktrees.map((w) => w.branch).join(', ')}) Azure DevOpsiin ja luo pull requestin.`, ok: 'Lähetä ja luo PR' }))) return null;
+async function openPullRequest(c, run, button, preview) {
+  const lines = (preview ?? []).filter((p) => !p.gone).map((p) => `${p.repo}: ${p.branch} → ${p.target}${p.commits != null ? ` (${commitCount(p.commits)})` : ''}`);
+  const text = `Tämä lähettää haaran Azure DevOpsiin ja luo pull requestin:\n${lines.length ? lines.join('\n') : run.worktrees.map((w) => `${w.branch} → ${targetOf(w)}`).join('\n')}`;
+  if (!(await confirmBox({ title: 'Luo pull request', text, ok: 'Lähetä ja luo PR' }))) return null;
   button.disabled = true;
-  try { await api(`/api/cards/${c.id}/pr`, { method: 'POST', body: {} }); return true; }
-  catch (e) { button.disabled = false; toast(e.message); return false; }
+  try {
+    if (await postConfirmed(`/api/cards/${c.id}/pr`, 'Luodaanko pull request silti?') === null) { button.disabled = false; return null; }
+    return true;
+  } catch (e) { button.disabled = false; toast(e.message); return false; }
+}
+
+/** Pushes the commits the card's branches gained after their pull requests were opened. Same return values as mergeLocal. */
+async function updatePullRequest(c, waiting, button) {
+  const text = `Tämä lähettää uudet commitit Azure DevOpsiin, jolloin avoin pull request päivittyy:\n${waiting.map((p) => `${p.repo}: ${p.branch} (${commitCount(p.toPush)})`).join('\n')}`;
+  if (!(await confirmBox({ title: 'Päivitä pull request', text, ok: 'Lähetä' }))) return null;
+  button.disabled = true;
+  try {
+    if (await postConfirmed(`/api/cards/${c.id}/pr/update`, 'Päivitetäänkö pull request silti?') === null) { button.disabled = false; return null; }
+    return true;
+  } catch (e) { button.disabled = false; toast(e.message); return false; }
 }
 
 function renderRun(d) {
@@ -98,7 +135,7 @@ function renderRun(d) {
   const parts = [el('h3', { textContent: 'Toteutus' })];
   parts.push(el('div', {}, el('strong', { textContent: RUN_LABEL[run.state] ?? run.state }),
     el('span', { className: 'muted', textContent: run.model ? ` · ${run.model}${run.effort ? ' / ' + run.effort : ''}` : '' })));
-  for (const w of run.worktrees) parts.push(el('div', { className: 'muted', textContent: `${w.repo}: ${w.branch} (${w.path})` }));
+  for (const w of run.worktrees) parts.push(el('div', { className: 'muted', textContent: `${w.repo}: ${w.branch}, kohde ${targetOf(w)} (${w.path})` }));
   if (run.agentId) parts.push(el('div', { className: 'muted', textContent: `agentti ${run.agentId} · avaa terminaalissa: claude attach ${run.agentId}` }));
   if (run.review) {
     const rv = run.review;
@@ -140,18 +177,48 @@ function renderRun(d) {
   if (buttons.children.length) parts.push(buttons);
   const card = allCards.find((x) => x.id === openId);
   const prs = d.prs ?? [];
+  const preview = d.publish ?? [];
+  // After a review or a refresh: what the server would refuse until confirmed, shown before anyone presses a button.
+  const problems = preview.flatMap((p) => (p.problems ?? []).map((x) => `${p.repo}: ${x}`));
+  if (card?.status === 'review' && problems.length) {
+    parts.push(el('div', { className: 'err pre', style: 'margin-top:8px', textContent: `Haarassa voi olla muutakin kuin tämän kortin työtä:\n${problems.join('\n')}` }));
+  }
+  const conflicted = prs.filter((p) => p.state === 'active' && p.mergeStatus === 'conflicts');
   if (prs.length) {
     parts.push(el('h3', { textContent: 'Pull requestit', style: 'margin-top:10px' }));
     const PR_LABEL = { active: 'avoin', completed: 'yhdistetty', abandoned: 'hylätty' };
     for (const p of prs) {
       const row = el('div', { className: 'row' });
       row.append(/^https?:\/\//.test(p.url) ? el('a', { href: p.url, target: '_blank', rel: 'noopener', textContent: `${p.repo} #${p.id}` }) : el('span', { textContent: `${p.repo} #${p.id}` }),
-        el('span', { className: 'muted', textContent: `${PR_LABEL[p.state] ?? p.state} · ${p.branch} → ${p.target}` }));
+        el('span', { className: conflicted.includes(p) ? 'err' : 'muted', textContent: `${PR_LABEL[p.state] ?? p.state} · ${p.branch} → ${p.target}${conflicted.includes(p) ? ' · ristiriidassa kohdehaaran kanssa' : ''}` }));
       parts.push(row);
+    }
+    const waiting = preview.filter((x) => x.toPush > 0 && prs.some((p) => p.repo === x.repo && p.state === 'active'));
+    if (card?.status === 'review' && waiting.length) {
+      const n = waiting.reduce((sum, x) => sum + x.toPush, 0);
+      const b = el('button', { className: 'primary', textContent: `Päivitä pull request (${n === 1 ? '1 uusi commit' : `${n} uutta committia`})`, style: 'margin-top:8px' });
+      b.addEventListener('click', async () => {
+        const done = await updatePullRequest(card, waiting, b);
+        if (done === null) return;
+        if (done) toast('Pull request päivitetty');
+        runJson = '';
+        await loadRun();
+      });
+      parts.push(b);
+    }
+    if (card?.status === 'review' && conflicted.length && run.state === 'finished' && run.agentId) {
+      const b = el('button', { textContent: 'Anna agentin ratkaista konfliktit', style: 'margin-top:8px' });
+      b.addEventListener('click', async () => {
+        await resolveConflicts(card, null, [...new Set(conflicted.map((p) => p.target))].join(', '));
+        await refresh(true);
+        runJson = '';
+        await loadRun();
+      });
+      parts.push(b);
     }
   }
   if (card?.status === 'review' && d.localMerge) {
-    const b = el('button', { className: 'primary', textContent: 'Hyväksy työ projektiin', style: 'margin-top:8px' });
+    const b = el('button', { className: 'primary', textContent: `Hyväksy työ haaraan ${targetsOf(run)}`, style: 'margin-top:8px' });
     b.addEventListener('click', async () => {
       const done = await mergeLocal(card, run, d.commitMessage, b);
       if (done === null) return;
@@ -163,9 +230,10 @@ function renderRun(d) {
     });
     parts.push(el('div', { className: 'muted', style: 'margin-top:8px', textContent: 'Tämä projekti ei ole Azure DevOpsissa, joten pull requestia ei voi luoda. Kun olet lukenut raportin ja muutokset, hyväksy työ tästä.' }), b);
   } else if (card?.status === 'review' && run.worktrees.length && prs.length < run.worktrees.length) {
-    const b = el('button', { className: 'primary', textContent: 'Luo pull request Azure DevOpsiin', style: 'margin-top:8px' });
+    const open = run.worktrees.filter((w) => !prs.some((p) => p.repo === w.repo));
+    const b = el('button', { className: 'primary', textContent: `Luo pull request → ${[...new Set(open.map(targetOf))].join(', ')}`, style: 'margin-top:8px' });
     b.addEventListener('click', async () => {
-      const done = await openPullRequest(card, run, b);
+      const done = await openPullRequest(card, run, b, preview.filter((p) => open.some((w) => w.repo === p.repo)));
       if (done === null) return;
       if (done) return advanced('Pull request luotu');
       await refresh(true);
@@ -231,7 +299,39 @@ const detail = document.getElementById('detail');
 let openId = null, refineJson = '', es = null, pollTimer = null;
 
 function setDetailMeta(c) {
-  document.getElementById('d-meta').textContent = `${LABELS[c.status]}${phaseInfo.cards[c.id] ? ` (${phaseInfo.cards[c.id].label})` : ''} · ${PRIO[c.priority]}${c.repos.length ? ' · ' + c.repos.join(', ') : ''}${cardTokens(c.id)}`;
+  document.getElementById('d-meta').textContent = `${LABELS[c.status]}${phaseInfo.cards[c.id] ? ` (${phaseInfo.cards[c.id].label})` : ''} · ${PRIO[c.priority]}${c.repos.length ? ' · ' + c.repos.join(', ') : ''}${c.baseBranch ? ` → ${c.baseBranch}` : ''}${cardTokens(c.id)}`;
+  paintBase(c);
+}
+
+// Where a card's base branch can still change: the work forks from it when it starts (the server says the same).
+const BASE_EDITABLE = ['inbox', 'refining', 'ready', 'needs_input'];
+
+/** The card's base branch, editable until its work starts; redrawn only when that changes, so typing is kept. */
+function paintBase(c) {
+  const box = document.getElementById('d-base');
+  const key = `${c.id}|${c.status}|${c.baseBranch ?? ''}`;
+  if (box.dataset.key === key) return;
+  box.dataset.key = key;
+  if (!c.repos.length || !BASE_EDITABLE.includes(c.status)) return box.replaceChildren(); // then the run shows where the work goes
+  const input = el('input', { value: c.baseBranch ?? '', placeholder: 'projektin kohdehaara tai repon oletushaara', autocomplete: 'off', style: 'max-width:320px' });
+  const save = el('button', { type: 'button', textContent: 'Tallenna', disabled: true });
+  input.addEventListener('input', () => { save.disabled = input.value.trim() === (c.baseBranch ?? ''); });
+  save.addEventListener('click', async () => {
+    save.disabled = true;
+    save.textContent = 'Tarkistetaan…';
+    try {
+      const updated = await api(`/api/cards/${c.id}`, { method: 'PATCH', body: { baseBranch: input.value.trim() || null } });
+      Object.assign(c, updated);
+      setDetailMeta(c);
+      toast(updated.baseBranch ? `Kohdehaara: ${updated.baseBranch}` : 'Kohdehaara: projektin tai repon oletus');
+    } catch (e) {
+      toast(e.message);
+      save.disabled = false;
+      save.textContent = 'Tallenna';
+    }
+  });
+  box.replaceChildren(el('h3', { textContent: 'Kohdehaara' }), el('div', { className: 'row', style: 'gap:6px' }, input, save),
+    el('div', { className: 'hint', textContent: 'Haara, josta agentin työhaara tehdään ja johon pull request tai hyväksytty työ menee. Tyhjä = projektin kohdehaara, muuten repon oletushaara. Voi vaihtaa, kunnes toteutus alkaa.' }));
 }
 
 function openDetail(id) {
@@ -241,6 +341,7 @@ function openDetail(id) {
   refineJson = '';
   runJson = '';
   document.getElementById('d-run').replaceChildren();
+  delete document.getElementById('d-base').dataset.key; // drawn again for this card by setDetailMeta
   const diffBox = document.getElementById('d-diff');
   diffBox.replaceChildren();
   delete diffBox.dataset.shown;
