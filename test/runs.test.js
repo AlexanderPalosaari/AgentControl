@@ -221,6 +221,15 @@ describe('watching', () => {
     assert.equal((await call('GET', `/api/cards/${card.id}/run`)).body.report, 'did it');
   });
 
+  test('a running agent is listed as work that goes on when AgentControl stops', async () => {
+    const { card } = await startOne({ title: 'Still working' });
+    const res = await call('GET', '/api/activity');
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.items, [{ what: 'Toteutus', title: 'Still working', onStop: 'continues' }]);
+    assert.equal(res.body.queued, 0);
+    await server.store.update(card.id, { status: 'archive' });
+  });
+
   test('a fresh report while the agent is still busy waits out a grace period', async () => {
     const { card } = await startOne();
     writeFileSync(cardFile(card.id, 'report.md'), 'early');

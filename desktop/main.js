@@ -1,14 +1,19 @@
 // Desktop shell: runs server.js as a child process, shows the UI in a window and keeps a tray icon
-// that reports how many cards wait for the person. Closing the window hides it; Quit stops the server.
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, session, Tray } from 'electron';
+// that reports how many cards wait for the person. Closing the window hides it; Quit stops the server, after asking
+// when work is running.
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, powerMonitor, session, Tray } from 'electron';
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { quitWarning } from '../lib/activity.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 let server, win, tray, url, quitting = false;
+let quitAgreed = false; // the person said to quit although work runs, or the system is shutting down
+let asking = false;     // the "quit anyway?" question is on screen
+let toldHidden = false; // the "still running in the tray" note was shown (once per run)
 let notified = null; // keys of the "your turn" items already seen; null until the first look, which only seeds it
 
 /** A solid 32x32 PNG, so the tray needs no image asset. */
@@ -77,10 +82,59 @@ function showWindow() {
   if (!win) {
     win = new BrowserWindow({ width: 1400, height: 900, title: 'AgentControl', autoHideMenuBar: true, webPreferences: { preload: join(root, 'desktop', 'preload.cjs') } });
     win.loadURL(url);
-    win.on('close', (e) => { if (!quitting) { e.preventDefault(); win.hide(); } });
+    win.on('close', (e) => {
+      if (quitting) return;
+      e.preventDefault();
+      win.hide();
+      tellStillRunning();
+    });
+    win.on('session-end', () => { quitAgreed = true; }); // Windows is logging off or shutting down: never hold it up
   }
   win.show();
   win.focus();
+}
+
+/** The token for our own API calls: the page's cookie, else the saved one. */
+async function authToken() {
+  const cookies = await win?.webContents.session.cookies.get({ name: 'ac_token' });
+  return cookies?.[0]?.value ?? readToken();
+}
+
+/** What stopping the server would cut off (GET /api/activity); null when the server does not answer. */
+async function activity() {
+  try {
+    const res = await fetch(new URL('/api/activity', url), { headers: { Cookie: `ac_token=${await authToken()}` }, signal: AbortSignal.timeout(5000) });
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The first time the window is closed (hidden) while work runs: a note that it goes on, and where to quit. */
+async function tellStillRunning() {
+  if (toldHidden || !Notification.isSupported()) return;
+  const now = await activity();
+  if (!now?.items.length || toldHidden) return;
+  toldHidden = true;
+  const n = new Notification({ title: 'AgentControl jatkaa taustalla', body: `${now.items.length === 1 ? '1 työ' : `${now.items.length} työtä`} käynnissä. Ikkuna vain piilotettiin; lopeta ilmaisinalueen kuvakkeen valikosta.` });
+  n.on('click', showWindow);
+  n.show();
+}
+
+/**
+ * Whether to go on quitting: true when nothing would be cut off, or when the person says to quit anyway after seeing
+ * what runs. Only this app's own server stops on quit; one served by another instance (exit 75) keeps its work.
+ */
+async function confirmQuit() {
+  if (!server || server.exitCode !== null || !url) return true;
+  const warning = quitWarning((await activity()) ?? {});
+  if (!warning) return true; // nothing runs, or the server does not answer: there is nothing to wait for
+  const options = {
+    type: 'warning', title: 'AgentControl', message: warning.message, detail: warning.detail,
+    buttons: ['Älä lopeta', 'Lopeta silti'], defaultId: 0, cancelId: 0, noLink: true,
+  };
+  const { response } = win?.isVisible() ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options);
+  return response === 1;
 }
 
 /**
@@ -90,9 +144,7 @@ function showWindow() {
  */
 async function pollWaiting() {
   try {
-    const cookies = await win?.webContents.session.cookies.get({ name: 'ac_token' });
-    const token = cookies?.[0]?.value ?? readToken();
-    const res = await fetch(new URL('/api/next', url), { headers: { Cookie: `ac_token=${token}` } });
+    const res = await fetch(new URL('/api/next', url), { headers: { Cookie: `ac_token=${await authToken()}` } });
     if (!res.ok) return;
     // The inbox line is a suggestion, not something that is stuck on the person.
     const items = (await res.json()).yourTurn.filter((i) => i.what !== 'Inbox');
@@ -195,10 +247,25 @@ app.whenReady().then(async () => {
     { label: 'Avaa', click: showWindow },
     { label: 'Lopeta', click: () => app.quit() },
   ]));
+  powerMonitor.on('shutdown', () => { quitAgreed = true; }); // macOS and Linux; Windows tells the window (session-end)
   showWindow();
   setInterval(pollWaiting, 15_000);
   pollWaiting();
 });
 
 app.on('window-all-closed', () => { /* stay in the tray */ });
-app.on('before-quit', () => { quitting = true; server?.kill(); });
+// Quit (tray, menu) first asks when work is running; the question cancels this quit and quits again on "Lopeta silti".
+app.on('before-quit', (e) => {
+  if (quitting) return;
+  if (!quitAgreed) {
+    e.preventDefault();
+    if (asking) return;
+    asking = true;
+    confirmQuit()
+      .catch(() => true)
+      .then((go) => { asking = false; if (go) { quitAgreed = true; app.quit(); } });
+    return;
+  }
+  quitting = true;
+  server?.kill();
+});

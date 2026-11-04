@@ -22,6 +22,7 @@ import { createOrchestrator } from './lib/orchestrator.js';
 import { MAX_CANVAS_BODY, createSandbox } from './lib/sandbox.js';
 import { MAX_IMAGE, createAttachments } from './lib/attachments.js';
 import { createNextSteps, createPhases } from './lib/next.js';
+import { createActivity } from './lib/activity.js';
 import { createTrust } from './lib/trust.js';
 import { createTranscriptReader, createUsageLedger } from './lib/usage.js';
 import { createJournal } from './lib/events.js';
@@ -75,6 +76,8 @@ export function createApp({ dataDir, token, archiveDays = 30, claude = createCla
   const orchestrator = createOrchestrator({ claude, dataDir, token, ledger, log, getBaseUrl: () => `http://127.0.0.1:${server.address().port}`, ...orchestratorOptions });
   // Each project's brainstorming chat and drawing canvas.
   const sandbox = createSandbox({ claude, dataDir, projects, explorer, store, attachments, ledger, log, ...sandboxOptions });
+  // What stopping the server would cut off: the desktop app asks before it quits.
+  const activity = createActivity({ store, runner, refiner, projects, explorer, auditor, orchestrator, sandbox, publisher });
 
   const tokenOk = (given) => {
     if (typeof given !== 'string') return false;
@@ -157,6 +160,7 @@ export function createApp({ dataDir, token, archiveDays = 30, claude = createCla
 
       if (url.pathname === '/api/repos' && req.method === 'GET') return send(res, 200, await listRepos(reposRoot, repos));
       if (url.pathname === '/api/next' && req.method === 'GET') return send(res, 200, await nextSteps.list());
+      if (url.pathname === '/api/activity' && req.method === 'GET') return send(res, 200, await activity());
       if (url.pathname === '/api/phases' && req.method === 'GET') return send(res, 200, await phases.list());
 
       if (url.pathname === '/api/usage' && req.method === 'GET') return send(res, 200, await ledger.summary({ days: limitParam(url, 14) }));
