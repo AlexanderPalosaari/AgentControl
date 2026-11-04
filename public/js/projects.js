@@ -118,7 +118,12 @@ function branchesBox(p) {
   const repos = projectBranches.repos;
   const box = el('div', { style: 'margin-top:6px' });
   if (!repos) return box.append(el('div', { className: 'muted', textContent: 'Luetaan haaroja…' })), box;
-  for (const r of repos) box.append(el('div', {}, el('span', { className: 'mono', textContent: p.workspace ? `${r.repo}: ` : '' }), branchText(r)), branchSwitch(p, r), targetPicker(p, r));
+  for (const r of repos) {
+    if (p.workspace) box.append(el('div', { className: 'mono', style: 'margin-top:8px;font-weight:600', textContent: r.repo }));
+    box.append(targetPicker(p, r),
+      el('div', { className: 'muted', textContent: 'Kansio tällä koneella (ei vaikuta siihen, mihin kortit menevät):' }),
+      el('div', {}, branchText(r)), branchSwitch(p, r));
+  }
   const again = el('button', { type: 'button', textContent: 'Päivitä', title: 'Hakee etärepon tilan (git fetch) ja lukee haarat uudelleen. Mitään ei muuteta.', style: 'margin-top:6px' });
   again.addEventListener('click', () => loadBranches(p.name, { fetch: true, button: again }));
   box.append(again);
@@ -177,10 +182,19 @@ function targetPicker(p, r) {
     }
   });
   const options = [...new Set([r.target, r.branch, ...(r.switchable ?? [])].filter(Boolean))];
-  return el('div', { style: 'margin:2px 0 8px' },
-    el('div', { className: 'muted', textContent: 'Korttien kohdehaara (josta työ tehdään ja johon pull request menee):' }),
+  const box = el('div', { style: 'margin:2px 0 8px' },
+    el('div', { className: 'muted', textContent: 'Korttien kohdehaara: kortit tehdään tästä haarasta ja niiden pull requestit menevät siihen' }),
     el('datalist', { id: listId }, ...options.map((b) => el('option', { value: b }))),
     el('div', { className: 'row', style: 'gap:6px' }, input, save));
+  // The folder is on a branch the cards do not go to: easy to mistake the one for the other, so offer it.
+  const goesTo = r.target ?? r.base?.replace(/^origin\//, '');
+  if (r.branch && goesTo && r.branch !== goesTo) {
+    const use = el('button', { type: 'button', textContent: `Käytä haaraa ${r.branch}` });
+    use.addEventListener('click', () => { input.value = r.branch; save.disabled = false; save.click(); });
+    box.append(el('div', { className: 'hint', style: 'margin-top:4px' },
+      `Kansio on haarassa ${r.branch}, mutta kortit menevät haaraan ${goesTo}. `, use));
+  }
+  return box;
 }
 
 async function loadBranches(name, { fetch = false, button = null } = {}) {

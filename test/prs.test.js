@@ -248,6 +248,20 @@ describe('publishing', () => {
     assert.equal(confirmed.body[0].target, 'features/dev');
   });
 
+  test('a repository the agent did not change gets no pull request', async () => {
+    const { card, cardDir } = await reviewCard();
+    const untouched = await createWorktree({ repoPath: join(reposRoot, 'demo'), path: join(data, 'worktrees', card.id, 'demo-b'), branch: `ac/${card.id}-untouched` });
+    const run = JSON.parse(readFileSync(join(cardDir, 'run.json'), 'utf8'));
+    writeFileSync(join(cardDir, 'run.json'), JSON.stringify({ ...run, worktrees: [...run.worktrees, { repo: 'demo-b', ...untouched }] }));
+    assert.deepEqual((await call('GET', `/api/cards/${card.id}/run`)).body.publish.map((p) => [p.repo, p.commits]), [['demo', 1], ['demo-b', 0]]);
+
+    const res = await call('POST', `/api/cards/${card.id}/pr`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.map((p) => p.repo), ['demo']);
+    assert.equal(requests.filter((r) => r.method === 'POST').length, 1);
+    assert.equal(sh(join(dir, 'origin.git'), 'branch', '--list', untouched.branch), '', 'the untouched branch was not pushed');
+  });
+
   test('commits made after the pull request was opened are pushed to it on request', async () => {
     const { card, wt } = await reviewCard();
     const [pr] = (await call('POST', `/api/cards/${card.id}/pr`)).body;
@@ -287,6 +301,7 @@ describe('publishing', () => {
 describe('origin that is not Azure DevOps', () => {
   test('is refused with a clear message, before anything is pushed', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'agentcontrol-prs2-'));
+    let app = null;
     try {
       const reposRoot = join(dir, 'repos');
       await mkdir(reposRoot, { recursive: true });
@@ -297,19 +312,22 @@ describe('origin that is not Azure DevOps', () => {
       sh(join(reposRoot, 'demo'), 'add', '.');
       sh(join(reposRoot, 'demo'), 'commit', '-qm', 'init');
       sh(join(reposRoot, 'demo'), 'push', '-q', 'origin', 'HEAD:main');
-      const app = createApp({ dataDir: join(dir, 'data'), token, reposRoot, azdo: createAzdo({ getToken: async () => 'x' }) });
+      app = createApp({ dataDir: join(dir, 'data'), token, reposRoot, azdo: createAzdo({ getToken: async () => 'x' }) });
       await new Promise((r) => app.listen(0, '127.0.0.1', r));
       const b = `http://127.0.0.1:${app.address().port}`;
       const c = await (await fetch(`${b}/api/cards`, { method: 'POST', headers, body: JSON.stringify({ title: 't', repos: ['demo'] }) })).json();
       const wt = await createWorktree({ repoPath: join(reposRoot, 'demo'), path: join(dir, 'data', 'worktrees', c.id, 'demo'), branch: `ac/${c.id}-t` });
+      writeFileSync(join(wt.path, 'b.txt'), 'the agent\'s work\n');
+      sh(wt.path, 'add', '.');
+      sh(wt.path, 'commit', '-qm', 'work');
       writeFileSync(join(dir, 'data', 'cards', c.id, 'run.json'), JSON.stringify({ state: 'finished', worktrees: [{ repo: 'demo', ...wt }] }));
       await app.store.update(c.id, { status: 'review' });
       const res = await fetch(`${b}/api/cards/${c.id}/pr`, { method: 'POST', headers });
       assert.equal(res.status, 400);
       assert.match((await res.json()).error, /not an Azure DevOps repository/);
       assert.equal(sh(join(dir, 'origin.git'), 'branch', '--list', wt.branch), '', 'nothing was pushed');
-      await new Promise((r) => app.close(r));
     } finally {
+      if (app) await new Promise((r) => app.close(r)); // also after a failed assertion, or the test run never ends
       await rm(dir, { recursive: true, force: true });
     }
   });

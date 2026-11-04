@@ -49,6 +49,8 @@ async function runAct(path, body) {
 const targetOf = (w) => w.base.replace(/^origin\//, ''); // the branch a worktree's work goes into
 const targetsOf = (run) => [...new Set(run.worktrees.map(targetOf))].join(', ');
 const commitCount = (n) => `${n} commit${n === 1 ? '' : 'tia'}`;
+/** The worktrees still to publish: no pull request yet, and commits to show (a repository the agent left alone gets none). */
+const unpublished = (run, prs, preview) => run.worktrees.filter((w) => !prs.some((p) => p.repo === w.repo) && (preview.find((p) => p.repo === w.repo)?.commits ?? 1) > 0);
 
 /**
  * POSTs `path`. When the server asks to confirm first (409: the branch may carry other work than the card's),
@@ -229,8 +231,8 @@ function renderRun(d) {
       await loadRun();
     });
     parts.push(el('div', { className: 'muted', style: 'margin-top:8px', textContent: 'Tämä projekti ei ole Azure DevOpsissa, joten pull requestia ei voi luoda. Kun olet lukenut raportin ja muutokset, hyväksy työ tästä.' }), b);
-  } else if (card?.status === 'review' && run.worktrees.length && prs.length < run.worktrees.length) {
-    const open = run.worktrees.filter((w) => !prs.some((p) => p.repo === w.repo));
+  } else if (card?.status === 'review' && unpublished(run, prs, preview).length) {
+    const open = unpublished(run, prs, preview);
     const b = el('button', { className: 'primary', textContent: `Luo pull request → ${[...new Set(open.map(targetOf))].join(', ')}`, style: 'margin-top:8px' });
     b.addEventListener('click', async () => {
       const done = await openPullRequest(card, run, b, preview.filter((p) => open.some((w) => w.repo === p.repo)));
