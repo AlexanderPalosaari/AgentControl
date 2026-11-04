@@ -412,6 +412,22 @@ body[data-view="sandbox"] #next, body[data-view="sandbox"] #agents, body[data-vi
 #sbdlg .c-check { display: flex; gap: 8px; align-items: center; margin-top: 12px; color: var(--text); font-size: 14px; }
 #sbdlg .c-check input { width: auto; }
 #sb-cerror { min-height: 1.2em; margin-top: 8px; }
+.sb-chat.dropping { outline: 2px dashed var(--accent); outline-offset: -6px; }
+.sb-chat.dropping #sb-log::before { content: 'Pudota tiedosto: se lähtee tekoälylle (kentän teksti viestinä)'; align-self: center; color: var(--accent); font-size: 13.5px; padding: 6px; }
+#sbadlg { width: min(640px, calc(100vw - 32px)); }
+.sb-drop { border: 2px dashed var(--border); border-radius: 10px; padding: 18px 14px; text-align: center; display: grid; gap: 6px; cursor: pointer; }
+.sb-drop:hover, .sb-drop:focus-visible, .sb-drop.dropping { border-color: var(--accent); background: #1F3A5C55; }
+.sb-drop .muted { font-size: 13px; }
+#sb-apick { min-height: 0; padding: 2px 8px; }
+.sb-files { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+.sb-file { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: var(--card); }
+.sb-file-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; }
+.sb-file-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-file-head .muted { font-size: 12.5px; grid-row: 2; }
+.sb-file-x { min-height: 0; padding: 0 8px; font-size: 16px; line-height: 1.6; grid-row: 1 / span 2; grid-column: 2; }
+.sb-file summary { cursor: pointer; font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+.sb-file-preview { max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;font-size: 12.5px; margin: 6px 0 0; }
+#sb-aerror { min-height: 1.2em; margin-top: 8px; }
 @media (max-width: 1000px) {
   .sb-grid { grid-template-columns: minmax(0, 1fr); }
   .sb-chat { position: static; height: 520px; }

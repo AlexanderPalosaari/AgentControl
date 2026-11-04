@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -230,6 +231,28 @@ describe('board tools (MCP server)', () => {
     assert.match(d.patch, /^-x$[\s\S]*^\+y$/m, 'the change itself');
     assert.equal((await tool('commit_details', { name: 'mcp-git', sha: 'deadbeef' })).error, true, 'an unknown commit is an error');
     assert.equal((await tool('commit_details', { name: 'mcp-git', sha: '--help' })).error, true, 'only hex is accepted');
+  });
+
+  test('git runs reading commands in the project\'s repository and refuses anything that writes', async () => {
+    const repo = join(dir, 'repos', 'mcp-git');
+    const sh = (...a) => execFileSync('git', a, { cwd: repo, stdio: 'pipe', encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } }).trim();
+    sh('branch', 'features/x', 'HEAD~1');
+    const run = (args) => tool('git', { name: 'mcp-git', args });
+
+    const base = (await run(['merge-base', 'features/x', 'main'])).json;
+    assert.deepEqual([base.repo, base.output], ['mcp-git', sh('rev-parse', 'HEAD~1')], 'where the branch was made from');
+    assert.match((await run(['log', '--oneline', 'features/x..main'])).json.output, /second change/);
+    assert.match((await run(['branch', '-a'])).json.output, /features\/x/);
+    assert.match((await run(['branch', '--list', 'feat*'])).json.output, /features\/x/);
+    assert.match((await run(['reflog', '-n', '5'])).json.output, /commit/);
+
+    const refs = sh('for-each-ref');
+    for (const args of [['branch', 'new'], ['branch', '-D', 'features/x'], ['tag', 'v1'], ['tag', '-d', 'x'], ['checkout', 'features/x'], ['reset', '--hard'], ['diff', '--output=x.txt'], ['log', '--ext-diff'], ['grep', '-O', 'x'], ['reflog', 'expire', '--all'], ['stash'], ['config', 'user.name', 'x'], ['remote', 'add', 'o', 'u'], ['-c', 'x=y', 'log'], ['fetch'], []]) {
+      const r = await run(args);
+      assert.equal(r.error, true, `git ${args.join(' ')} is refused`);
+    }
+    assert.equal(sh('for-each-ref'), refs, 'nothing changed');
+    assert.ok(!existsSync(join(repo, 'x.txt')));
   });
 
   test('the board\'s rules still apply: illegal moves are refused', async () => {

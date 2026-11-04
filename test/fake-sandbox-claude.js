@@ -26,6 +26,7 @@ process.stdin.on('end', () => {
     out({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: r.content }] } });
   }
   const drawing = prompt.match(/shared their canvas drawing: (.+?)\. Look/);
-  const reply = drawing ? `Näen piirroksen (${readFileSync(drawing[1]).length} tavua)` : `Selvä: ${prompt.split('\n').at(-1)}`;
+  const artifact = prompt.match(/shared an artifact titled "(.+?)" \(\d+ characters\): (.+?)\. Read it/);
+  const reply = artifact ? `Luin artifaktin ${artifact[1]}: ${readFileSync(artifact[2], 'utf8')}` : drawing ? `Näen piirroksen (${readFileSync(drawing[1]).length} tavua)` : `Selvä: ${prompt.split('\n').at(-1)}`;
   out({ type: 'result', subtype: 'success', is_error: false, total_cost_usd: 0.01, result: reply });
 });

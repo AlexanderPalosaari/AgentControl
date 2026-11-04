@@ -194,6 +194,7 @@ function sbLine(m) {
     const src = sbPath(`/image/${m.image}`);
     line.append(el('a', { href: src, target: '_blank', rel: 'noopener', title: 'Tekoälylle näytetty piirros' }, el('img', { src, alt: 'Jaettu piirros', className: 'sb-thumb' })));
   }
+  if (m.artifact) line.append(el('div', { className: 'muted', textContent: `📎 ${m.artifact.title}` }));
   line.append(el('span', { textContent: m.text }));
   return line;
 }
@@ -235,28 +236,31 @@ async function sbLoad({ withCanvas = false } = {}) {
 
 const sbLastImage = () => [...sb.chat].reverse().find((m) => m.image)?.image ?? null;
 
-/** Sends a message, or with `png` the drawing; then the cards the AI proposed are asked about in popups. */
-async function sbSend(text, png = null) {
-  if (!sb.project || sb.sending) return;
+/** Sends a message, or with `png` the drawing, or with `artifact` ({ title, content }) a pasted artifact; then the cards the AI proposed are asked about in popups. Returns whether the server took it. */
+async function sbSend(text, png = null, artifact = null) {
+  if (!sb.project || sb.sending) return false;
   const notes = sb.notes;
   sb.notes = [];
   sb.sending = true;
-  sb.chat = [...sb.chat, { who: 'me', text: text || 'Katso piirrostani.' }];
+  sb.chat = [...sb.chat, { who: 'me', text: text || (artifact ? `Katso liittämääni artifaktia: ${artifact.title || 'Artifakti'}.` : 'Katso piirrostani.'), ...(artifact ? { artifact: { title: artifact.title || 'Artifakti' } } : {}) }];
   sbRenderChat();
   const project = sb.project;
   let out = null;
+  let taken = true;
   try {
-    out = await api(sbPath(png ? '/share' : '/chat'), { method: 'POST', body: { text, notes: notes.join(' '), ...(png ? { png } : {}) } });
+    out = await api(sbPath(artifact ? '/artifact' : png ? '/share' : '/chat'), { method: 'POST', body: { text, notes: notes.join(' '), ...(png ? { png } : {}), ...(artifact ?? {}) } });
   } catch (e) {
+    taken = false;
     sb.notes = [...notes, ...sb.notes];
     if (e.status === 400) toast(e.message); // nothing reached the AI; other failures are in the chat log
   } finally { sb.sending = false; }
-  if (project !== sb.project) return;
+  if (project !== sb.project) return taken;
   sb.chatJson = '';
   await sbLoad();
   for (const c of out?.confirmations ?? []) await sbConfirmCard(c.args ?? {});
   // Back to typing. A closed popup hands focus back to the field without a caret, so focus it afresh.
   if (sbInView() && !document.querySelector('dialog[open]') && [sbInput, document.body].includes(document.activeElement)) { sbInput.blur(); sbInput.focus(); }
+  return taken;
 }
 
 /** A card the AI proposed: created only when the person presses OK. */
@@ -273,12 +277,27 @@ async function sbConfirmCard({ title, description, attachCanvas }) {
   } catch (e) { toast(e.message); }
 }
 
-document.getElementById('sb-form').addEventListener('submit', (ev) => {
+// A claude.ai artifact link opens only with the person's own login, which the AI does not have: the desktop app reads
+// the artifact (signing in once in its own window) and the text goes to the AI as a shared artifact.
+const SB_ARTIFACT_LINK = /https:\/\/claude\.ai\/(?:code\/)?artifact\/[\w-]+(?:\?[\w=&%-]*)?/;
+async function sbFetchArtifact(link) {
+  if (!window.agentControl?.fetchArtifact) throw new Error('claude.ai-artifaktin linkin voi avata vain AgentControlin työpöytäsovelluksessa. Liitä sen teksti "Liitä artifakti" -napilla.');
+  toast('Haetaan artifaktia claude.ai:sta… (kirjaudu avautuvassa ikkunassa, jos se pyytää)');
+  try {
+    return await window.agentControl.fetchArtifact(link);
+  } catch (e) { throw new Error(String(e.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')); }
+}
+
+document.getElementById('sb-form').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const text = sbInput.value.trim();
   if (!text || sb.sending) return;
+  const link = text.match(SB_ARTIFACT_LINK)?.[0];
+  if (!link) { sbInput.value = ''; sbSend(text); return; }
+  let artifact;
+  try { artifact = await sbFetchArtifact(link); } catch (e) { toast(e.message); return; }
   sbInput.value = '';
-  sbSend(text);
+  sbSend(text, null, artifact);
 });
 sbInput.addEventListener('keydown', (ev) => {
   if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); document.getElementById('sb-form').requestSubmit(); }
@@ -326,9 +345,165 @@ document.getElementById('sb-cform').addEventListener('submit', async (ev) => {
   } catch (e) { document.getElementById('sb-cerror').textContent = e.message; }
 });
 
+// ---- files and artifacts shared with the AI, as text ----
+const SB_MAX_ARTIFACT = 300_000; // characters, as the server takes them
+const SB_MAX_FILE = 10_000_000;
+const SB_TEXT_FILE = /\.(html?|md|markdown|txt|json|csv|tsv|xml|svg|ya?ml|log|js|ts|jsx|tsx|css|py|cs|java|sql|sh|ps1)$/i;
+const SB_BLOCK = /^(P|DIV|SECTION|ARTICLE|HEADER|FOOTER|MAIN|ASIDE|NAV|UL|OL|TABLE|THEAD|TBODY|BLOCKQUOTE|FIGURE|FIGCAPTION|DETAILS|SUMMARY|DL|DT|DD|FORM|FIELDSET|HR)$/;
+
+/** A page as readable Markdown-ish text: headings, lists, tables and links kept; styles, scripts and markup gone. */
+function sbHtmlToText(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('script, style, noscript, template, svg, canvas, iframe, link, meta, [hidden], [aria-hidden="true"]').forEach((n) => n.remove());
+  const walk = (node) => {
+    if (node.nodeType === Node.TEXT_NODE) return node.nodeValue.replace(/\s+/g, ' ');
+    if (node.nodeType !== Node.ELEMENT_NODE) return '';
+    const tag = node.tagName;
+    if (tag === 'BR') return '\n';
+    if (tag === 'PRE') return `\n\n\`\`\`\n${node.textContent.replace(/^\n+|\s+$/g, '')}\n\`\`\`\n\n`;
+    const inner = [...node.childNodes].map(walk).join('');
+    if (/^H[1-6]$/.test(tag)) return `\n\n${'#'.repeat(Number(tag[1]))} ${inner.trim()}\n\n`;
+    if (tag === 'LI') return `\n${'  '.repeat(Math.max(0, node.parentElement?.closest('li') ? 1 : 0))}${node.parentElement?.tagName === 'OL' ? `${[...node.parentElement.children].indexOf(node) + 1}.` : '-'} ${inner.trim()}`;
+    if (tag === 'TR') return `\n|${inner}`;
+    if (tag === 'TD' || tag === 'TH') return ` ${inner.trim().replace(/\n+/g, ' ')} |`;
+    if (tag === 'CODE') return `\`${inner}\``;
+    if (tag === 'STRONG' || tag === 'B') return inner.trim() ? `**${inner.trim()}**` : '';
+    if (tag === 'A') { const href = node.getAttribute('href') ?? ''; return /^https?:/.test(href) && !inner.includes(href) ? `${inner} (${href})` : inner; }
+    if (SB_BLOCK.test(tag)) return `\n\n${inner}\n\n`;
+    return inner;
+  };
+  const title = doc.title.trim();
+  const text = walk(doc.body ?? doc.documentElement).split('\n').map((l) => l.replace(/[ \t]+$/g, '').replace(/^[ \t]+(?![-\d])/, '')).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return { title, text };
+}
+
+/** A file as { title, content, size }: an HTML page as its readable text, any other text file as it is. */
+async function sbReadFile(file) {
+  if (file.size > SB_MAX_FILE) throw new Error(`${file.name} on liian suuri (yli ${SB_MAX_FILE / 1e6} Mt).`);
+  const known = SB_TEXT_FILE.test(file.name) || file.type.startsWith('text/') || /json|xml/.test(file.type);
+  if (!known) throw new Error(`${file.name}: vain tekstitiedostot käyvät (HTML, Markdown, teksti, JSON, CSV…). PDF- ja Word-tiedostoista liitä teksti.`);
+  const raw = await file.text();
+  const name = file.name.replace(/\.[^.]+$/, '');
+  if (/\.html?$/i.test(file.name) || /^\s*(<!doctype html|<html)/i.test(raw)) {
+    const { title, text } = sbHtmlToText(raw);
+    return { title: title || name, content: text, size: file.size, from: 'html' };
+  }
+  return { title: name, content: raw, size: file.size, from: 'text' };
+}
+
+/** Several parts as one artifact (the server takes one per message): each under its own heading. */
+function sbJoinParts(parts, title = '') {
+  if (parts.length === 1) return { title: title || parts[0].title, content: parts[0].content.slice(0, SB_MAX_ARTIFACT) };
+  const content = parts.map((p) => `===== ${p.title} =====\n\n${p.content}`).join('\n\n');
+  return { title: (title || parts.map((p) => p.title).join(', ')).slice(0, 200), content: content.slice(0, SB_MAX_ARTIFACT) };
+}
+
+const sbKb = (n) => (n < 1024 ? `${n} t` : n < 1024 * 1024 ? `${Math.round(n / 1024)} kt` : `${(n / 1024 / 1024).toFixed(1)} Mt`);
+
+/** Files dropped or pasted into the chat go straight to the AI, with what is typed in the field as the message. */
+async function sbSendFiles(files) {
+  if (!sb.project || sb.sending || !files.length) return;
+  let parts;
+  try { parts = await Promise.all([...files].map(sbReadFile)); } catch (e) { toast(e.message); return; }
+  parts = parts.filter((p) => p.content.trim());
+  if (!parts.length) { toast('Tiedostoissa ei ollut tekstiä.'); return; }
+  const text = sbInput.value.trim();
+  sbInput.value = '';
+  sbSend(text, null, sbJoinParts(parts));
+}
+
+const sbChatBox = document.querySelector('.sb-chat');
+const sbHasFiles = (ev) => [...(ev.dataTransfer?.types ?? [])].includes('Files');
+let sbDragDepth = 0;
+sbChatBox.addEventListener('dragenter', (ev) => { if (!sbHasFiles(ev) || !sb.project) return; ev.preventDefault(); sbDragDepth++; sbChatBox.classList.add('dropping'); });
+sbChatBox.addEventListener('dragover', (ev) => { if (sbHasFiles(ev) && sb.project) { ev.preventDefault(); ev.dataTransfer.dropEffect = 'copy'; } });
+sbChatBox.addEventListener('dragleave', () => { if (--sbDragDepth <= 0) { sbDragDepth = 0; sbChatBox.classList.remove('dropping'); } });
+sbChatBox.addEventListener('drop', (ev) => {
+  if (!sbHasFiles(ev)) return;
+  ev.preventDefault();
+  sbDragDepth = 0;
+  sbChatBox.classList.remove('dropping');
+  sbSendFiles(ev.dataTransfer.files);
+});
+sbInput.addEventListener('paste', (ev) => {
+  const files = ev.clipboardData?.files;
+  if (files?.length) { ev.preventDefault(); sbSendFiles(files); }
+});
+
+// "Liitä artifakti": files (picked or dropped), pasted text or a claude.ai link, sent to the AI as one artifact.
+const sbadlg = document.getElementById('sbadlg');
+const sbAFile = document.getElementById('sb-afile');
+let sbaParts = [];
+function sbRenderFiles() {
+  document.getElementById('sb-afiles').replaceChildren(...sbaParts.map((p, i) => {
+    const remove = el('button', { type: 'button', className: 'sb-file-x', textContent: '×', title: 'Poista', ariaLabel: `Poista ${p.title}` });
+    remove.addEventListener('click', () => { sbaParts.splice(i, 1); sbRenderFiles(); });
+    const what = `${sbKb(p.size)} → ${p.content.length.toLocaleString('fi-FI')} merkkiä ${p.from === 'html' ? 'tekstiä (HTML muunnettu)' : 'tekstiä'}`;
+    const preview = el('details', {}, el('summary', { textContent: 'Esikatsele' }), el('pre', { className: 'sb-file-preview', textContent: p.content.slice(0, 3000) + (p.content.length > 3000 ? '\n…' : '') }));
+    return el('li', { className: 'sb-file' }, el('div', { className: 'sb-file-head' }, el('span', { className: 'sb-file-name', textContent: `📄 ${p.title}` }), el('span', { className: 'muted', textContent: what }), remove), preview);
+  }));
+}
+async function sbAddFiles(files) {
+  const err = document.getElementById('sb-aerror');
+  err.textContent = '';
+  for (const f of files) {
+    try {
+      const p = await sbReadFile(f);
+      if (!p.content.trim()) throw new Error(`${f.name}: ei tekstiä.`);
+      sbaParts.push(p);
+    } catch (e) { err.textContent = e.message; }
+  }
+  sbRenderFiles();
+}
+document.getElementById('sb-artifact').addEventListener('click', () => {
+  if (!sb.project || sb.sending) return;
+  for (const id of ['sb-atitle', 'sb-acontent', 'sb-atext']) document.getElementById(id).value = '';
+  sbAFile.value = '';
+  sbaParts = [];
+  sbRenderFiles();
+  document.getElementById('sb-aerror').textContent = '';
+  sbadlg.showModal();
+});
+document.getElementById('sb-acancel').addEventListener('click', () => sbadlg.close());
+document.getElementById('sb-apick').addEventListener('click', () => sbAFile.click());
+sbAFile.addEventListener('change', async () => { await sbAddFiles([...sbAFile.files]); sbAFile.value = ''; });
+const sbDrop = document.getElementById('sb-adrop');
+sbDrop.addEventListener('dragover', (ev) => { if (sbHasFiles(ev)) { ev.preventDefault(); sbDrop.classList.add('dropping'); } });
+sbDrop.addEventListener('dragleave', () => sbDrop.classList.remove('dropping'));
+sbDrop.addEventListener('drop', (ev) => { ev.preventDefault(); sbDrop.classList.remove('dropping'); sbAddFiles([...ev.dataTransfer.files]); });
+sbDrop.addEventListener('click', (ev) => { if (ev.target.id !== 'sb-apick') sbAFile.click(); });
+sbDrop.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); sbAFile.click(); } });
+document.getElementById('sb-acontent').addEventListener('paste', (ev) => {
+  const files = ev.clipboardData?.files;
+  if (files?.length) { ev.preventDefault(); sbAddFiles([...files]); }
+});
+document.getElementById('sb-aform').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const err = document.getElementById('sb-aerror');
+  let pasted = document.getElementById('sb-acontent').value;
+  const title = document.getElementById('sb-atitle').value.trim();
+  const text = document.getElementById('sb-atext').value.trim();
+  const parts = [...sbaParts];
+  // A claude.ai link (alone or with a few words): read the artifact behind it with the person's login.
+  const link = `${pasted}\n${title}`.match(SB_ARTIFACT_LINK)?.[0];
+  if (link && pasted.trim().length < 300) {
+    const submit = ev.submitter;
+    if (submit) submit.disabled = true;
+    try {
+      const got = await sbFetchArtifact(link);
+      parts.push({ title: got.title || 'Artifakti', content: got.content });
+      pasted = '';
+    } catch (e) { err.textContent = e.message; return; } finally { if (submit) submit.disabled = false; }
+  }
+  if (pasted.trim()) parts.push({ title: title || 'Liitetty teksti', content: pasted });
+  if (!parts.length) { err.textContent = 'Valitse tiedosto, liitä teksti tai claude.ai-linkki.'; return; }
+  sbadlg.close();
+  await sbSend(text, null, sbJoinParts(parts, SB_ARTIFACT_LINK.test(title) ? '' : title));
+});
+
 // ---- the project ----
 function sbSetEnabled(on) {
-  for (const id of ['sb-erase', 'sb-undo', 'sb-clear', 'sb-share', 'sb-reset', 'sb-card']) document.getElementById(id).disabled = !on;
+  for (const id of ['sb-erase', 'sb-undo', 'sb-clear', 'sb-share', 'sb-reset', 'sb-card', 'sb-artifact']) document.getElementById(id).disabled = !on;
   sbInput.disabled = !on;
   document.querySelector('#sb-form button').disabled = !on;
 }

@@ -172,7 +172,7 @@ export function createApp({ dataDir, token, archiveDays = 30, claude = createCla
       }
       if (url.pathname === '/api/orchestrator/reset' && req.method === 'POST') return send(res, 200, await orchestrator.reset());
 
-      const sb = url.pathname.match(/^\/api\/sandbox\/([^/]+)(?:\/(chat|canvas|share|reset|card|image\/(canvas-\d+\.png)))?$/);
+      const sb = url.pathname.match(/^\/api\/sandbox\/([^/]+)(?:\/(chat|canvas|share|artifact|reset|card|image\/(canvas-\d+\.png)))?$/);
       if (sb) {
         let name = '';
         try { name = decodeURIComponent(sb[1]); } catch { /* malformed: not found below */ }
@@ -182,6 +182,7 @@ export function createApp({ dataDir, token, archiveDays = 30, claude = createCla
         if (action === 'canvas' && req.method === 'PUT') return send(res, 200, await sandbox.saveCanvas(name, await readJson(req, MAX_CANVAS_BODY)));
         if (action === 'canvas' && req.method === 'DELETE') return send(res, 200, await sandbox.clearCanvas(name));
         if (action === 'share' && req.method === 'POST') return send(res, 200, await sandbox.share(name, await readJson(req, MAX_SHARE)));
+        if (action === 'artifact' && req.method === 'POST') return send(res, 200, await sandbox.shareArtifact(name, await readJson(req, MAX_CANVAS_BODY)));
         if (action === 'reset' && req.method === 'POST') return send(res, 200, await sandbox.reset(name));
         if (action === 'card' && req.method === 'POST') return send(res, 201, await sandbox.createCard(name, await readJson(req)));
         if (action === 'image' && req.method === 'GET') {
@@ -198,7 +199,7 @@ export function createApp({ dataDir, token, archiveDays = 30, claude = createCla
 
       if (url.pathname === '/api/projects/existing' && req.method === 'POST') return send(res, 201, await projects.addExisting(await readJson(req)));
 
-      const pj = url.pathname.match(/^\/api\/projects\/([^/]+)(?:\/(source-control|settings|plan|tasks|delete|map|explore|audit|audit\/run|audit\/ticket|commits|branches|hidden))?$/);
+      const pj = url.pathname.match(/^\/api\/projects\/([^/]+)(?:\/(source-control|settings|plan|tasks|delete|map|explore|audit|audit\/run|audit\/ticket|commits|branches|git|hidden))?$/);
       if (pj) {
         let name = '';
         try { name = decodeURIComponent(pj[1]); } catch { /* malformed: not found below */ }
@@ -210,6 +211,7 @@ export function createApp({ dataDir, token, archiveDays = 30, claude = createCla
         if (pj[2] === 'map' && req.method === 'GET') return send(res, 200, await explorer.get(name));
         if (pj[2] === 'explore' && req.method === 'POST') return send(res, 202, await explorer.start(name, { full: (await readJson(req)).full === true }));
         if (pj[2] === 'commits' && req.method === 'GET') return send(res, 200, url.searchParams.has('sha') ? await projects.commitDetails(name, url.searchParams.get('sha')) : await projects.recentCommits(name));
+        if (pj[2] === 'git' && req.method === 'POST') return send(res, 200, await projects.gitRead(name, await readJson(req)));
         if (pj[2] === 'hidden' && req.method === 'POST') return send(res, 200, await projects.setHidden(name, await readJson(req)));
         if (pj[2] === 'branches' && req.method === 'POST') return send(res, 200, await projects.switchBranch(name, await readJson(req)));
         if (pj[2] === 'branches' && req.method === 'GET') return send(res, 200, await projects.branches(name, { fetch: url.searchParams.get('fetch') === '1' }));

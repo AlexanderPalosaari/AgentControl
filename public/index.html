@@ -99,6 +99,7 @@
         <div class="row">
           <button type="button" id="sb-reset" title="Tekoäly unohtaa aiemman keskustelun. Loki ja piirros säilyvät.">Uusi keskustelu</button>
           <button type="button" id="sb-card">Luo kortti</button>
+          <button type="button" id="sb-artifact" title="Liitä artifaktin sisältö keskusteluun, niin tekoäly voi lukea sen ja ehdottaa siitä kortteja">Liitä artifakti</button>
         </div>
       </div>
     </div>
@@ -187,6 +188,28 @@
     <div class="actions">
       <button type="button" id="sb-ccancel">Peruuta</button>
       <button class="primary" type="submit">Luo kortti</button>
+    </div>
+  </form>
+</dialog>
+<dialog id="sbadlg">
+  <form method="dialog" id="sb-aform">
+    <h2 style="margin-top:0">Liitä artifakti keskusteluun</h2>
+    <div id="sb-adrop" class="sb-drop" tabindex="0" role="button" aria-label="Valitse tai pudota tiedostoja">
+      <div><strong>Pudota tiedostot tähän</strong> tai <button type="button" id="sb-apick">valitse tiedostot</button></div>
+      <div class="muted">HTML, Markdown, teksti, JSON, CSV… HTML-sivusta tekoäly saa luettavan tekstin ilman tyylejä ja koodia.</div>
+      <input id="sb-afile" type="file" multiple hidden accept=".html,.htm,.md,.markdown,.txt,.json,.csv,.tsv,.xml,.svg,.yaml,.yml,.log,text/*">
+    </div>
+    <ul id="sb-afiles" class="sb-files"></ul>
+    <label for="sb-acontent">tai liitä teksti tai claude.ai-artifaktin linkki</label>
+    <textarea id="sb-acontent" rows="4" placeholder="https://claude.ai/artifact/…  tai suunnitelman teksti"></textarea>
+    <label for="sb-atitle">Nimi (valinnainen)</label>
+    <input id="sb-atitle" maxlength="200" placeholder="esim. Tietoturvan kovennussuunnitelma">
+    <label for="sb-atext">Viesti tekoälylle (valinnainen)</label>
+    <input id="sb-atext" maxlength="1000" placeholder="esim. Tee tästä kortit">
+    <div id="sb-aerror" class="err"></div>
+    <div class="actions">
+      <button type="button" id="sb-acancel">Peruuta</button>
+      <button class="primary" type="submit">Lähetä tekoälylle</button>
     </div>
   </form>
 </dialog>

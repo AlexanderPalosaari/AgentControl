@@ -68,7 +68,7 @@ describe('sandbox', () => {
     assert.deepEqual(addDirs, [realpathSync.native(join(dir, 'data', 'sandbox', 'sb')), repo]);
     assert.equal(realpathSync.native(run.cwd), repo);
     const allowed = run.args.slice(run.args.indexOf('--allowedTools') + 1, run.args.indexOf('--disallowedTools'));
-    assert.deepEqual(allowed, ['Read', 'Grep', 'Glob', 'mcp__sandbox']);
+    assert.deepEqual(allowed, ['Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch', 'mcp__sandbox', 'mcp__microsoft-learn']);
     const denied = run.args.slice(run.args.indexOf('--disallowedTools') + 1, run.args.indexOf('--setting-sources'));
     for (const t of ['Bash', 'Edit', 'Write']) assert.ok(denied.includes(t), t);
     assert.ok(run.args.includes('--strict-mcp-config'));
@@ -100,6 +100,25 @@ describe('sandbox', () => {
     assert.equal((await app.call('PUT', '/api/sandbox/sb/canvas', { strokes: [{ ...stroke, points: [[0, 'a']] }] })).status, 400);
     assert.equal((await app.call('DELETE', '/api/sandbox/sb/canvas')).body.rev, 2);
     assert.deepEqual((await app.call('GET', '/api/sandbox/sb')).body.canvas.strokes, []);
+  });
+
+  test('sharing an artifact saves its text and points the AI at it', async () => {
+    assert.equal((await app.call('POST', '/api/sandbox/sb/artifact', { content: '  ' })).status, 400);
+    assert.equal((await app.call('POST', '/api/sandbox/sb/artifact', { content: 'x'.repeat(300_001) })).status, 400);
+
+    const res = await app.call('POST', '/api/sandbox/sb/artifact', { title: 'Suunnitelma', content: '# Haku\n- lisää hakukenttä', text: 'Tee tästä kortit' });
+    assert.equal(res.status, 200);
+    const file = join(dir, 'data', 'sandbox', 'sb', 'shared', 'artifact-1.txt');
+    assert.equal(await readFile(file, 'utf8'), '# Haku\n- lisää hakukenttä');
+    assert.equal(res.body.reply, 'Luin artifaktin Suunnitelma: # Haku\n- lisää hakukenttä', 'the AI read the file it was pointed at');
+    assert.match((await invocations()).at(-1).prompt, /Tee tästä kortit$/);
+
+    const me = (await app.call('GET', '/api/sandbox/sb')).body.chat.filter((m) => m.who === 'me').at(-1);
+    assert.deepEqual([me.text, me.artifact], ['Tee tästä kortit', { file: 'artifact-1.txt', title: 'Suunnitelma' }]);
+
+    await app.call('POST', '/api/sandbox/sb/artifact', { content: 'toinen' });
+    assert.ok(existsSync(join(dir, 'data', 'sandbox', 'sb', 'shared', 'artifact-2.txt')), 'each artifact is a file of its own');
+    assert.deepEqual((await app.call('POST', '/api/sandbox/nope/artifact', { content: 'a' })).status, 404);
   });
 
   test('sharing the drawing saves the PNG and points the AI at it', async () => {

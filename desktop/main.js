@@ -117,6 +117,63 @@ ipcMain.handle('pick-folder', async (event) => {
   return canceled ? null : filePaths[0];
 });
 
+const ARTIFACT_RE = /^https:\/\/claude\.ai\/(?:code\/)?artifact\/[\w-]+(?:\?[\w=&%-]*)?$/;
+const MAX_ARTIFACT = 300_000;
+
+/**
+ * The text of a claude.ai artifact, for the sandbox: an artifact opens only with the person's own claude.ai login, so
+ * it is loaded in a window of its own with a session of its own (persist:claude-ai, kept apart from our page). The
+ * window stays hidden while the artifact loads; when claude.ai asks to sign in, it is shown and the person signs in
+ * there themself, once. The content renders in a frame on *.claudeusercontent.com, whose text is read.
+ */
+function fetchArtifact(link) {
+  return new Promise((resolve, reject) => {
+    const w = new BrowserWindow({ width: 1000, height: 800, show: false, title: 'Kirjaudu claude.ai:hin, niin AgentControl voi lukea artifaktin', autoHideMenuBar: true, parent: win, webPreferences: { partition: 'persist:claude-ai' } });
+    let done = false, timer = null, deadline = Date.now() + 30_000;
+    const finish = (err, out) => {
+      if (done) return;
+      done = true;
+      clearInterval(timer);
+      if (!w.isDestroyed()) w.destroy();
+      if (err) reject(err); else resolve(out);
+    };
+    w.on('closed', () => finish(new Error('Artifaktin ikkuna suljettiin ennen kuin sisältö latautui.')));
+    // After signing in claude.ai lands on its front page: go back to the artifact.
+    w.webContents.on('did-navigate', (_e, at) => {
+      if (/^https:\/\/claude\.ai\/(new|recents|chats?)?\/?$/.test(at.split('?')[0])) w.loadURL(link);
+    });
+    timer = setInterval(async () => {
+      if (done || w.isDestroyed()) return;
+      try {
+        const main = w.webContents.mainFrame;
+        if (/\/login|\/sign-?in|\/magic-link/.test(main.url) || /Sign in to view/i.test(await main.executeJavaScript('document.body?.innerText ?? ""'))) {
+          if (!w.isVisible()) { w.show(); w.focus(); }
+          deadline = Math.max(deadline, Date.now() + 5 * 60_000); // time for the person to sign in
+          return;
+        }
+        let best = null;
+        for (const f of main.framesInSubtree) {
+          if (!/\.claudeusercontent\.com$/.test(new URL(f.url || 'about:blank').hostname || '')) continue;
+          const text = String(await f.executeJavaScript('document.body?.innerText ?? ""')).trim();
+          if (text && (!best || text.length > best.text.length)) best = { text, title: String(await f.executeJavaScript('document.title')).trim() };
+        }
+        if (best) {
+          const title = best.title || String(await main.executeJavaScript('document.title')).replace(/\s*[-–|]\s*Claude.*$/, '').trim();
+          return finish(null, { title: title === 'Claude Artifact' ? '' : title, content: best.text.slice(0, MAX_ARTIFACT) });
+        }
+      } catch { /* a frame that is still loading or navigating: try again on the next tick */ }
+      if (Date.now() > deadline) finish(new Error('Artifaktin sisältö ei latautunut.'));
+    }, 1000);
+    w.loadURL(link).catch((e) => finish(new Error(`Artifaktia ei saatu auki: ${e.message}`)));
+  });
+}
+
+ipcMain.handle('fetch-artifact', async (event, link) => {
+  if (!event.senderFrame?.url.startsWith(new URL(url).origin)) throw new Error('not allowed');
+  if (typeof link !== 'string' || !ARTIFACT_RE.test(link)) throw new Error('Ei claude.ai-artifaktin linkki.');
+  return fetchArtifact(link);
+});
+
 if (!app.requestSingleInstanceLock()) app.quit();
 app.on('second-instance', () => url && showWindow());
 
