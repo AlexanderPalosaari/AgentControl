@@ -42,6 +42,7 @@
       <p class="muted" id="sub"></p>
     </div>
     <div class="top-actions">
+      <button id="day-summary" type="button" title="Mitä tänään valmistui, mikä odottaa katselmointia ja mikä on kesken">Päivän yhteenveto</button>
       <button id="add-project" type="button" title="Lisää projektiksi kansio, jossa on jo olemassa oleva git-repo">Lisää olemassa oleva</button>
       <button id="new-project" type="button" title="Uusi git-repo (paikallinen tai GitHub), suunnitelma ja tehtäväkortit kuvauksesta">Uusi projekti</button>
       <button class="primary" id="new" type="button">+ Uusi kortti</button>
@@ -184,6 +185,21 @@
   <section id="d-refine"></section>
   <section><h3>Live</h3><div class="pre" id="live"></div></section>
 </dialog>
+<dialog id="sumdlg" aria-labelledby="sum-title">
+  <div class="row" style="justify-content:space-between;gap:8px">
+    <h2 id="sum-title" style="margin:0">Päivän yhteenveto</h2>
+    <div class="row" style="gap:6px">
+      <button type="button" id="sum-prev" title="Edellinen päivä" aria-label="Edellinen päivä">‹</button>
+      <input type="date" id="sum-day" aria-label="Päivä">
+      <button type="button" id="sum-next" title="Seuraava päivä" aria-label="Seuraava päivä">›</button>
+    </div>
+  </div>
+  <div id="sum-body"></div>
+  <div class="actions">
+    <button type="button" id="sum-copy">Kopioi tekstinä</button>
+    <button type="button" class="primary" id="sum-close">Sulje</button>
+  </div>
+</dialog>
 <dialog id="cdlg" aria-labelledby="c-title">
   <h2 id="c-title" style="margin:0 0 10px;font-size:19px"></h2>
   <div id="c-text" style="white-space:pre-wrap;word-break:break-word"></div>
@@ -261,6 +277,7 @@
 <script defer src="/js/voice-control.js"></script>
 <script defer src="/js/sandbox.js"></script>
 <script defer src="/js/console.js"></script>
+<script defer src="/js/summary.js"></script>
 <script defer src="/js/main.js"></script>
 </body>
 </html>

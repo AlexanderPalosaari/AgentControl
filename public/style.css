@@ -486,3 +486,20 @@ body[data-view="konsoli"] #next, body[data-view="konsoli"] #agents, body[data-vi
 .deps-editor .dep-row select { min-width: 0; }
 .deps-editor > button { align-self: flex-start; }
 .followup { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: start; margin-bottom: 6px; }
+
+/* the day summary (Komentokeskus) */
+#day-summary { display: none; }
+body[data-view="keskus"] #day-summary { display: inline-flex; align-items: center; }
+#sumdlg { width: min(720px, 94vw); max-height: 90vh; }
+#sumdlg input[type=date] { width: auto; }
+#sum-body { margin-top: 12px; }
+#sum-body h3 { margin: 16px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.sum-facts { display: flex; flex-wrap: wrap; gap: 8px; }
+.sum-fact { display: flex; align-items: baseline; gap: 6px; padding: 6px 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
+.sum-fact b { font: 600 18px var(--sans); }
+.sum-fact span { color: var(--muted); font-size: 13px; }
+.sum-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.sum-list .muted { font-size: 13px; }
+.sum-title { all: unset; cursor: pointer; font-weight: 600; }
+.sum-title:hover, .sum-title:focus-visible { text-decoration: underline; }
+.sum-empty { padding: 12px 0; }

@@ -11,6 +11,7 @@ import { createRefiner } from './lib/refine.js';
 import { createAgents } from './lib/agents.js';
 import { createRunner } from './lib/runs.js';
 import { createAgentConsole } from './lib/console.js';
+import { createDaySummary } from './lib/summary.js';
 import { createAzCliToken, createAzdo } from './lib/azdo.js';
 import { createPublisher } from './lib/prs.js';
 import { createGithub, createGithubToken } from './lib/github.js';
@@ -67,6 +68,7 @@ export function createApp({ dataDir, token, archiveDays = 30, claude = createCla
   const refiner = createRefiner({ store, claude, reposRoot, repos, model, effort, projectSettings, projectContext, projectBase, checkoutsDir: join(dataDir, 'refine-checkouts'), attachments, ledger, log });
   const runner = createRunner({ store, agents: createAgents({ claude }), dataDir, reposRoot, repos, refiner, reviewer, attachments, projectSettings, projectContext, projectBase, ledger, transcripts, log, ...runnerOptions });
   const agentConsole = createAgentConsole({ store, runner, refiner, ...consoleOptions }); // what every working agent says, live
+  const daySummary = createDaySummary({ journal, store, ledger }); // what got done on a day, from the journal and the cards
   // Limits saved from the Settings page win over the startup values (environment variables).
   const settingsFile = join(dataDir, 'settings.json');
   try { runner.setLimits(JSON.parse(readFileSync(settingsFile, 'utf8')).runner ?? {}); } catch { /* nothing saved, or unreadable: keep the startup values */ }
@@ -171,6 +173,7 @@ export function createApp({ dataDir, token, archiveDays = 30, claude = createCla
       if (url.pathname === '/api/events/stream' && req.method === 'GET') return streamJournal(req, res, limitParam(url, 300));
       if (url.pathname === '/api/console/stream' && req.method === 'GET') return streamConsole(req, res);
       if (url.pathname === '/api/console' && req.method === 'GET') return send(res, 200, await agentConsole.workers());
+      if (url.pathname === '/api/summary' && req.method === 'GET') return send(res, 200, await daySummary.summary(url.searchParams.get('day') ? { day: url.searchParams.get('day') } : {}));
       if (url.pathname === '/api/chat') {
         if (req.method === 'GET') return send(res, 200, await chatLog.tail(limitParam(url, 200)));
         if (req.method === 'POST') {
