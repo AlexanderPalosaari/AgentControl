@@ -320,4 +320,11 @@ describe('verificationFinding', () => {
   test('only reads up to the next heading', () => {
     assert.match(verificationFinding('## Verification\n\n## Risks\n- something long enough to pass the length check\n').summary, /empty or too thin/);
   });
+
+  test('a check left to a person is sent back, in Finnish or English', () => {
+    for (const line of ['- Skipped: selainkokeilut tekee käyttäjä käsin', '- Nämä selainkokeilut tekee käyttäjä käsin.', '- Skipped: browser, to be tested manually', '- Skipped: browser, the user tests it']) {
+      assert.match(verificationFinding(`## Verification\n- Tested: dotnet test, 12 passed\n${line}\n`)?.summary ?? '', /left to a person/, line);
+    }
+    assert.equal(verificationFinding('## Verification\n- Tested: logged in as the user secretary, created an invoice, it showed 3 rows\n- Skipped: browser, the change has no UI\n'), null);
+  });
 });
