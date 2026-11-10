@@ -249,11 +249,22 @@ describe('reviewer', () => {
     assert.equal(r.findings[0].source, 'code-review');
     assert.equal(r.cost, 0.25);
     const call = logged().at(-1);
-    assert.equal(call.prompt, '/code-review high origin/main');
+    assert.equal(call.prompt, '/code-review high origin/main...HEAD');
     assert.ok(call.args.includes('--json-schema'));
     assert.deepEqual(call.args.slice(call.args.indexOf('--disallowedTools'), call.args.indexOf('--disallowedTools') + 4), ['--disallowedTools', 'Edit', 'Write', 'NotebookEdit']);
     assert.equal(call.args[call.args.indexOf('--model') + 1], 'sonnet');
     assert.ok(!call.args.includes('--permission-mode'), 'plan mode writes plan files; read-only is enforced by the tool lists');
+  });
+
+  test('reviews only the commits since the branch met its base, never the base branch itself', async () => {
+    await createReviewer({ claude: claudeFor(), security: true }).review({ cwd: dir, base: 'origin/angular-22', since: 'abc1234' });
+    const [code, sec] = logged().slice(-2);
+    assert.equal(code.prompt, '/code-review medium abc1234..HEAD');
+    for (const call of [code, sec]) {
+      const system = call.args[call.args.indexOf('--append-system-prompt') + 1];
+      assert.match(system, /git diff abc1234\.\.HEAD/);
+      assert.match(system, /already in origin\/angular-22/);
+    }
   });
 
   test('adds a security review when asked and tags where each finding came from', async () => {
