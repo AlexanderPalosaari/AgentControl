@@ -154,8 +154,8 @@ describe('board tools (MCP server)', () => {
 
   test('cards with a dependency, and refining that waits for confirmation', async () => {
     const a = (await tool('create_card', { title: 'A', repos: ['repo-a'] })).json;
-    const b = (await tool('create_card', { title: 'B', repos: ['repo-a'], after: a.id, afterKind: 'planned' })).json;
-    assert.deepEqual([b.after, b.afterKind, b.status], [a.id, 'planned', 'inbox']);
+    const b = (await tool('create_card', { title: 'B', repos: ['repo-a'], deps: [{ id: a.id, kind: 'planned' }] })).json;
+    assert.deepEqual([b.deps, b.status], [[{ id: a.id, kind: 'planned' }], 'inbox']);
 
     const blocked = await tool('start_refinement', { id: b.id });
     assert.equal(blocked.error, true);

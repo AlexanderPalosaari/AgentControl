@@ -4,12 +4,13 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { AFTER_KINDS, ConfirmationError, MANUAL_MOVES, MergeConflictError, NotFoundError, STATUSES, PRIORITIES, ValidationError, canMove, createCardStore } from './lib/cards.js';
+import { AFTER_KINDS, CARD_KINDS, ConfirmationError, MANUAL_MOVES, MergeConflictError, NotFoundError, STATUSES, PRIORITIES, ValidationError, canMove, createCardStore } from './lib/cards.js';
 import { resolveBase } from './lib/git.js';
 import { createClaude } from './lib/claude.js';
 import { createRefiner } from './lib/refine.js';
 import { createAgents } from './lib/agents.js';
 import { createRunner } from './lib/runs.js';
+import { createAgentConsole } from './lib/console.js';
 import { createAzCliToken, createAzdo } from './lib/azdo.js';
 import { createPublisher } from './lib/prs.js';
 import { createGithub, createGithubToken } from './lib/github.js';
@@ -41,7 +42,7 @@ const LOGIN_CODE_MS = 10 * 60_000;
 const MAX_AUDIO = 16_000 * 30 * 4; // 30 s of 16 kHz float32
 const MAX_SHARE = Math.ceil(MAX_IMAGE * 1.4) + 10_000; // a sandbox drawing: a PNG as base64 in JSON
 
-export function createApp({ dataDir, token, archiveDays = 30, claude = createClaude(), reposRoot = dirname(root), model = null, effort = null, runner: runnerOptions = {}, reviewer = null, azdo = createAzdo({ getToken: createAzCliToken() }), github = createGithub({ getToken: createGithubToken() }), publisher: publisherOptions = {}, voice: voiceOptions = {}, orchestrator: orchestratorOptions = {}, sandbox: sandboxOptions = {}, stt = createStt({ cacheDir: join(dataDir, 'models') }), transcripts = null }) {
+export function createApp({ dataDir, token, archiveDays = 30, claude = createClaude(), reposRoot = dirname(root), model = null, effort = null, runner: runnerOptions = {}, reviewer = null, azdo = createAzdo({ getToken: createAzCliToken() }), github = createGithub({ getToken: createGithubToken() }), publisher: publisherOptions = {}, voice: voiceOptions = {}, orchestrator: orchestratorOptions = {}, sandbox: sandboxOptions = {}, stt = createStt({ cacheDir: join(dataDir, 'models') }), transcripts = null, console: consoleOptions = {} }) {
   // On disk, so the log and the conversation survive restarts.
   // A command that fails every few seconds (e.g. `claude agents` broken by an update) is logged once, then counted.
   const journal = createJournal(join(dataDir, 'events.jsonl'), { collapseMs: 10 * 60_000 });
@@ -65,6 +66,7 @@ export function createApp({ dataDir, token, archiveDays = 30, claude = createCla
   const projectBase = (repo) => projects.baseFor(repo); // the branch a repository's cards fork from, unless the card chose one
   const refiner = createRefiner({ store, claude, reposRoot, repos, model, effort, projectSettings, projectContext, projectBase, checkoutsDir: join(dataDir, 'refine-checkouts'), attachments, ledger, log });
   const runner = createRunner({ store, agents: createAgents({ claude }), dataDir, reposRoot, repos, refiner, reviewer, attachments, projectSettings, projectContext, projectBase, ledger, transcripts, log, ...runnerOptions });
+  const agentConsole = createAgentConsole({ store, runner, refiner, ...consoleOptions }); // what every working agent says, live
   // Limits saved from the Settings page win over the startup values (environment variables).
   const settingsFile = join(dataDir, 'settings.json');
   try { runner.setLimits(JSON.parse(readFileSync(settingsFile, 'utf8')).runner ?? {}); } catch { /* nothing saved, or unreadable: keep the startup values */ }
@@ -155,7 +157,7 @@ export function createApp({ dataDir, token, archiveDays = 30, claude = createCla
       }
 
       if (url.pathname === '/api/meta' && req.method === 'GET') {
-        return send(res, 200, { statuses: STATUSES, priorities: PRIORITIES, moves: MANUAL_MOVES, afterKinds: AFTER_KINDS, models: MODEL_ALIASES, efforts: EFFORTS, reposRoot });
+        return send(res, 200, { statuses: STATUSES, priorities: PRIORITIES, moves: MANUAL_MOVES, afterKinds: AFTER_KINDS, cardKinds: CARD_KINDS, models: MODEL_ALIASES, efforts: EFFORTS, reposRoot });
       }
 
       if (url.pathname === '/api/repos' && req.method === 'GET') return send(res, 200, await listRepos(reposRoot, repos));
@@ -167,6 +169,8 @@ export function createApp({ dataDir, token, archiveDays = 30, claude = createCla
 
       if (url.pathname === '/api/events' && req.method === 'GET') return send(res, 200, await journal.tail(limitParam(url, 300)));
       if (url.pathname === '/api/events/stream' && req.method === 'GET') return streamJournal(req, res, limitParam(url, 300));
+      if (url.pathname === '/api/console/stream' && req.method === 'GET') return streamConsole(req, res);
+      if (url.pathname === '/api/console' && req.method === 'GET') return send(res, 200, await agentConsole.workers());
       if (url.pathname === '/api/chat') {
         if (req.method === 'GET') return send(res, 200, await chatLog.tail(limitParam(url, 200)));
         if (req.method === 'POST') {
@@ -250,9 +254,16 @@ export function createApp({ dataDir, token, archiveDays = 30, claude = createCla
             const { status: from } = await store.get(m[1]);
             if (!canMove(from, patch.status)) throw new ValidationError(`A card cannot be moved from ${from} to ${patch.status} by hand`);
           }
-          return send(res, 200, await store.update(m[1], patch));
+          const card = await store.update(m[1], patch);
+          if (card.kind === 'research' && (card.status === 'done' || card.status === 'archive')) {
+            await runner.cleanupResearch(card.id).catch((e) => log('agent', `Selvityksen siivous epäonnistui: ${card.title}: ${e.message}`, { card: card.id, level: 'warn' }));
+          }
+          return send(res, 200, card);
         }
       }
+
+      const rs = url.pathname.match(/^\/api\/cards\/([^/]+)\/research\/start$/);
+      if (rs && req.method === 'POST') return send(res, 202, await runner.startResearch(rs[1], { confirmed: (await readJson(req)).confirmed === true }));
 
       if (url.pathname === '/api/dispatcher') {
         if (req.method === 'POST') runner.setEnabled((await readJson(req)).enabled);
@@ -369,8 +380,26 @@ export function createApp({ dataDir, token, archiveDays = 30, claude = createCla
     const write = (entry) => res.write(`data: ${JSON.stringify(entry)}\n\n`);
     for (const entry of await refiner.liveTail(id)) write(entry);
     const unsubscribe = refiner.subscribe(id, write);
+    // The card's implementation or research agent too, from its session transcript (marked so the page can tell).
+    let closed = false;
+    let unsubscribeAgent = () => {};
+    agentConsole.subscribe((msg) => {
+      if (msg.type === 'backlog') for (const e of msg.entries) write({ ...e, agent: true });
+      else if (msg.type === 'entry') write({ ...msg.entry, agent: true });
+    }, { card: id }).then((fn) => { if (closed) fn(); else unsubscribeAgent = fn; }, () => {});
     const keepAlive = setInterval(() => res.write(': ping\n\n'), 25_000);
-    req.on('close', () => { clearInterval(keepAlive); unsubscribe(); });
+    req.on('close', () => { closed = true; clearInterval(keepAlive); unsubscribe(); unsubscribeAgent(); });
+  }
+
+  /** Every working agent's conversation as server-sent events (the console view); see createAgentConsole. */
+  async function streamConsole(req, res) {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
+    let closed = false;
+    let unsubscribe = () => {};
+    const keepAlive = setInterval(() => res.write(': ping\n\n'), 25_000);
+    req.on('close', () => { closed = true; clearInterval(keepAlive); unsubscribe(); });
+    unsubscribe = await agentConsole.subscribe((msg) => res.write(`data: ${JSON.stringify(msg)}\n\n`));
+    if (closed) unsubscribe(); // the page left while the backlog was read
   }
 
   server.store = store;
@@ -389,7 +418,8 @@ export function createApp({ dataDir, token, archiveDays = 30, claude = createCla
   server.newLoginCode = newLoginCode;
   server.journal = journal;
   server.retention = retention;
-  server.on('close', () => { runner.shutdown(); publisher.shutdown(); stt.close?.(); });
+  server.agentConsole = agentConsole;
+  server.on('close', () => { runner.shutdown(); publisher.shutdown(); agentConsole.shutdown(); stt.close?.(); });
   return server;
 }
 

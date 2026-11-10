@@ -3,7 +3,7 @@
 // Part of the page: these files are plain scripts that share one scope and load in the order listed in index.html.
 
 // ---- views: #/keskus (command centre, default) and #/taulu (the board) ----
-const VIEWS = { keskus: 'Komentokeskus', taulu: 'Taulu', riippuvuudet: 'Riippuvuudet', muutokset: 'Muutokset', sandbox: 'Sandbox', asetukset: 'Asetukset' };
+const VIEWS = { keskus: 'Komentokeskus', taulu: 'Taulu', konsoli: 'Konsoli', riippuvuudet: 'Riippuvuudet', muutokset: 'Muutokset', sandbox: 'Sandbox', asetukset: 'Asetukset' };
 function setView() {
   const wanted = location.hash.replace(/^#\//, '');
   const view = wanted in VIEWS ? wanted : 'keskus';

@@ -519,3 +519,63 @@ describe('base branch', () => {
     await call('GET', '/api/events'); // reading waits for the journal's queued writes, which would outlive the test
   });
 });
+
+describe('research cards', () => {
+  test('start without refinement, may only read, finish into review without a code review, and clean up when done', async () => {
+    const card = await newCard({ title: 'Selvitä kirjautuminen', kind: 'research' });
+    assert.equal(card.kind, 'research');
+    const res = await call('POST', `/api/cards/${card.id}/research/start`, {});
+    assert.equal(res.status, 202);
+    assert.equal((await getCard(card.id)).status, 'ready', 'no plan needed: straight to the queue');
+    await runner.tick();
+    assert.equal((await getCard(card.id)).status, 'running');
+    const run = getRun(card.id);
+    assert.equal(run.kind, 'research');
+    const prompt = readFileSync(cardFile(card.id, 'prompt.md'), 'utf8');
+    assert.match(prompt, /# Research: Selvitä kirjautuminen/);
+    assert.match(prompt, /NOT to change code/);
+    const started = calls().findLast((c) => c.args[0] === '--bg');
+    const allowed = started.args.slice(started.args.indexOf('--allowedTools') + 1, started.args.indexOf('--disallowedTools'));
+    assert.ok(allowed.includes('WebSearch') && !allowed.some((t) => /git (add|commit)/.test(t)), 'reads and searches, never commits');
+    assert.ok(started.args.includes('Edit') && started.args.includes('Bash(git commit:*)'), 'editing and committing are refused');
+
+    writeFileSync(cardFile(card.id, 'report.md'), '## Vastaus\nnäin se toimii');
+    setJob(run.agentId, { status: 'idle', state: 'done' });
+    await runner.tick();
+    assert.equal((await getCard(card.id)).status, 'review');
+    assert.equal(getRun(card.id).state, 'finished');
+    assert.equal(getRun(card.id).review, undefined, 'research changed no code: no code review');
+
+    const wt = run.worktrees[0].path;
+    assert.ok(existsSync(wt));
+    assert.equal((await call('PATCH', `/api/cards/${card.id}`, { status: 'done' })).status, 200);
+    assert.equal(existsSync(wt), false, 'the checkout is removed once the research is done');
+    assert.match(readFileSync(cardFile(card.id, 'report.md'), 'utf8'), /näin se toimii/, 'the report stays');
+  });
+
+  test('without a repository the agent works in an empty folder of its own', async () => {
+    const card = await newCard({ title: 'Vertaile kirjastoja', kind: 'research', repos: [] });
+    await call('POST', `/api/cards/${card.id}/research/start`, {});
+    await runner.tick();
+    const run = getRun(card.id);
+    assert.equal(run.state, 'running');
+    assert.deepEqual(run.worktrees, []);
+    assert.equal(run.cwd, join(data, 'worktrees', card.id, '_research'));
+    assert.ok(trusted.includes(run.cwd));
+    assert.match(readFileSync(cardFile(card.id, 'prompt.md'), 'utf8'), /No repository/);
+  });
+
+  test('only a research card starts this way, and an unmet dependency asks first', async () => {
+    const task = await newCard();
+    assert.equal((await call('POST', `/api/cards/${task.id}/research/start`, {})).status, 400);
+    const a = await newCard({ title: 'A' });
+    const b = await newCard({ title: 'B' });
+    const r = await newCard({ title: 'R', kind: 'research', deps: [{ id: a.id }, { id: b.id, kind: 'planned' }] });
+    const res = await call('POST', `/api/cards/${r.id}/research/start`, {});
+    assert.equal(res.status, 409);
+    assert.deepEqual(res.body.blockers.map((x) => x.title), ['A', 'B']);
+    assert.equal((await getCard(r.id)).status, 'inbox');
+    assert.equal((await call('POST', `/api/cards/${r.id}/research/start`, { confirmed: true })).status, 202);
+    assert.equal((await getCard(r.id)).status, 'running', 'a confirmed start does not wait in the queue for its dependencies');
+  });
+});

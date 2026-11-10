@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { request as httpRequest } from 'node:http';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
 import { createApp } from '../server.js';
-import { NotFoundError, ValidationError, createCardStore, unmetDependency } from '../lib/cards.js';
+import { NotFoundError, ValidationError, createCardStore, dependsOn, unmetDependencies, unmetDependency } from '../lib/cards.js';
 
 let dir;
 before(async () => { dir = await mkdtemp(join(tmpdir(), 'agentcontrol-')); });
@@ -20,7 +21,8 @@ describe('card store', () => {
     assert.equal(a.status, 'inbox');
     assert.deepEqual(a.repos, ['r1']);
     const b = await store.create({ title: 'Second', after: a.id });
-    assert.equal(b.after, a.id);
+    assert.deepEqual(b.deps, [{ id: a.id, kind: 'done' }], 'the old single after still works');
+    assert.equal(b.kind, 'task');
     assert.equal((await store.list()).length, 2);
     const moved = await store.update(a.id, { status: 'ready' });
     assert.equal(moved.status, 'ready');
@@ -31,10 +33,10 @@ describe('card store', () => {
     const store = createCardStore(join(dir, 'deps'));
     const a = await store.create({ title: 'A' });
     const b = await store.create({ title: 'B', after: a.id });
-    assert.equal(b.afterKind, 'done', 'implementation is the default');
+    assert.equal(b.deps[0].kind, 'done', 'implementation is the default');
     const c = await store.create({ title: 'C', after: a.id, afterKind: 'planned' });
     const no = await store.create({ title: 'D' });
-    assert.equal(no.afterKind, null);
+    assert.deepEqual(no.deps, []);
     await assert.rejects(store.create({ title: 'E', after: a.id, afterKind: 'soon' }), ValidationError);
 
     const at = (status) => [{ ...a, status }, b, c];
@@ -51,10 +53,52 @@ describe('card store', () => {
     const a = await store.create({ title: 'A' });
     const b = await store.create({ title: 'B', after: a.id });
     const c = await store.create({ title: 'C' });
-    assert.deepEqual(await store.update(c.id, { after: b.id, afterKind: 'planned' }).then((x) => [x.after, x.afterKind]), [b.id, 'planned']);
+    assert.deepEqual(await store.update(c.id, { after: b.id, afterKind: 'planned' }).then((x) => x.deps), [{ id: b.id, kind: 'planned' }]);
     await assert.rejects(store.update(a.id, { after: c.id }), /cycle/);
     await assert.rejects(store.update(a.id, { after: a.id }), /cycle/);
-    assert.deepEqual(await store.update(c.id, { after: null }).then((x) => [x.after, x.afterKind]), [null, null]);
+    assert.deepEqual(await store.update(c.id, { after: null }).then((x) => x.deps), []);
+  });
+
+  test('a card can wait for several cards, and waits until all of them are ready', async () => {
+    const store = createCardStore(join(dir, 'multi'));
+    const a = await store.create({ title: 'A' });
+    const b = await store.create({ title: 'B' });
+    const c = await store.create({ title: 'C', deps: [{ id: a.id }, { id: b.id, kind: 'planned' }, { id: a.id, kind: 'planned' }] });
+    assert.deepEqual(c.deps, [{ id: a.id, kind: 'done' }, { id: b.id, kind: 'planned' }], 'duplicates merge, the first kind stays');
+    const at = (sa, sb) => [{ ...a, status: sa }, { ...b, status: sb }, c];
+    assert.deepEqual(unmetDependencies(c, at('inbox', 'inbox')).map((u) => u.dep.id), [a.id, b.id]);
+    assert.equal(unmetDependency(c, at('done', 'inbox'))?.id, b.id);
+    assert.equal(unmetDependency(c, at('done', 'ready')), null);
+    assert.ok(dependsOn(c, b.id));
+    // A cycle through any of the dependencies is refused; a whole list replaces the old one.
+    const d = await store.create({ title: 'D', deps: [c.id] });
+    await assert.rejects(store.update(b.id, { deps: [{ id: a.id }, { id: d.id }] }), /cycle/);
+    assert.deepEqual((await store.update(d.id, { deps: [a.id, b.id] })).deps.map((x) => x.id), [a.id, b.id]);
+    await assert.rejects(store.update(d.id, { deps: [{ id: a.id, kind: 'soon' }] }), ValidationError);
+    await assert.rejects(store.update(d.id, { deps: 'nope' }), ValidationError);
+  });
+
+  test('cards saved with the old single dependency read as a list of one', async () => {
+    const store = createCardStore(join(dir, 'legacy'));
+    const a = await store.create({ title: 'A' });
+    const b = await store.create({ title: 'B' });
+    const file = join(dir, 'legacy', 'cards', b.id, 'card.json');
+    const raw = JSON.parse(readFileSync(file, 'utf8'));
+    delete raw.deps; delete raw.kind;
+    writeFileSync(file, JSON.stringify({ ...raw, after: a.id, afterKind: 'planned' }));
+    const got = await store.get(b.id);
+    assert.deepEqual(got.deps, [{ id: a.id, kind: 'planned' }]);
+    assert.equal(got.kind, 'task');
+    assert.equal('after' in got, false);
+  });
+
+  test('a research card', async () => {
+    const store = createCardStore(join(dir, 'research'));
+    const r = await store.create({ title: 'Selvitä X', kind: 'research' });
+    assert.equal(r.kind, 'research');
+    await assert.rejects(store.create({ title: 'x', kind: 'essay' }), ValidationError);
+    await store.update(r.id, { status: 'running' });
+    await assert.rejects(store.update(r.id, { kind: 'task' }), /cannot change/);
   });
 
   test('validation', async () => {

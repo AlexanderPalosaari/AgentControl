@@ -562,7 +562,7 @@ function showProject(p) {
     const create = el('button', { type: 'button', className: 'primary' });
     const checks = s.tasks.map((t, i) => {
       const cb = el('input', { type: 'checkbox', checked: true, value: String(i), title: 'Luo tästä kortti' });
-      const info = [PRIO[t.priority], p.workspace && t.repos?.length ? t.repos.join(', ') : '', t.after != null ? `odottaa tehtävää ${t.after + 1} (${AFTER_LABEL[t.afterKind ?? 'done']})` : ''].filter(Boolean).join(' · ');
+      const info = [PRIO[t.priority], p.workspace && t.repos?.length ? t.repos.join(', ') : '', t.after != null ? `odottaa ${t.alsoAfter?.length ? 'tehtäviä' : 'tehtävää'} ${[t.after, ...(t.alsoAfter ?? [])].map((n) => n + 1).join(', ')} (${AFTER_LABEL[t.afterKind ?? 'done']})` : ''].filter(Boolean).join(' · ');
       parts.push(el('div', { className: 'task' }, cb, el('div', { style: 'flex:1;min-width:0' },
         el('details', {}, el('summary', { textContent: `${i + 1}. ${t.title}` }), el('div', { className: 'pre', style: 'margin-top:4px', textContent: t.brief })),
         el('div', { className: 'muted', style: 'font-size:12.5px', textContent: info }))));

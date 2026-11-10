@@ -209,12 +209,12 @@ describe('planning and tasks', () => {
     assert.equal(res.body.cards.length, 2);
     const [runko, raportit] = await Promise.all(res.body.cards.map(async (id) => (await call('GET', `/api/cards/${id}`)).body));
     assert.equal(runko.title, 'Runko');
-    assert.equal(runko.after, null);
+    assert.deepEqual(runko.deps, []);
     assert.equal(runko.priority, 'high');
     assert.deepEqual(runko.repos, ['cards-me']);
     assert.equal(runko.status, 'inbox');
     assert.equal(raportit.title, 'Raportit');
-    assert.equal(raportit.after, runko.id, 'Raportit waited for Tilaukset, which waited for Runko');
+    assert.deepEqual(raportit.deps.map((d) => d.id), [runko.id], 'Raportit waited for Tilaukset, which waited for Runko');
 
     const path = join(reposRoot, 'cards-me');
     assert.equal(readFileSync(join(path, 'PLAN.md'), 'utf8'), '# Suunnitelma\nSQLite.\n');

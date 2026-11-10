@@ -2,17 +2,34 @@
 // dependency graph, the card element, notifications and the board refresh.
 // Part of the page: these files are plain scripts that share one scope and load in the order listed in index.html.
 
-// ---- dependency graph: every chain of cards (after -> card) as a tree, the longest unfinished chain in bold ----
+// ---- dependency graph: the cards that wait for each other, in columns by how deep in the chain they are ----
+// A card may wait for several cards, so the chains form a graph, not a tree: each group of connected cards is
+// drawn as columns (a card one column right of the deepest card it waits for), the longest unfinished chain in bold.
 function renderGraph() {
   const box = document.getElementById('graph');
   if (document.body.dataset.view !== 'riippuvuudet') return;
   const live = cards.filter((c) => c.status !== 'archive');
   const byId = new Map(live.map((c) => [c.id, c]));
+  const parents = new Map(live.map((c) => [c.id, cardDeps(c).filter((d) => byId.has(d.id))]));
   const kids = new Map();
-  for (const c of live) if (c.after && byId.has(c.after)) kids.set(c.after, [...(kids.get(c.after) ?? []), c]);
-  const countBelow = (c) => (kids.get(c.id) ?? []).reduce((n, k) => n + 1 + countBelow(k), 0);
-  const roots = live.filter((c) => (!c.after || !byId.has(c.after)) && kids.has(c.id));
-  const alone = live.length - roots.length - roots.reduce((n, r) => n + countBelow(r), 0);
+  for (const c of live) for (const d of parents.get(c.id)) kids.set(d.id, [...(kids.get(d.id) ?? []), c]);
+  const linked = live.filter((c) => parents.get(c.id).length || kids.has(c.id));
+  // Connected groups (ignoring direction), each drawn as its own diagram.
+  const groupOf = new Map();
+  for (const c of linked) {
+    if (groupOf.has(c.id)) continue;
+    const g = [];
+    const stack = [c];
+    groupOf.set(c.id, g);
+    while (stack.length) {
+      const at = stack.pop();
+      g.push(at);
+      for (const n of [...parents.get(at.id).map((d) => byId.get(d.id)), ...(kids.get(at.id) ?? [])]) {
+        if (!groupOf.has(n.id)) { groupOf.set(n.id, g); stack.push(n); }
+      }
+    }
+  }
+  const groups = [...new Set(groupOf.values())];
   const W = 230, H = 54, GX = 70, GY = 16;
   const NS = 'http://www.w3.org/2000/svg';
   const add = (parent, tag, attrs, text) => {
@@ -22,48 +39,72 @@ function renderGraph() {
     parent.append(e);
     return e;
   };
-  const depthOf = (c) => 1 + Math.max(0, ...(kids.get(c.id) ?? []).map(depthOf));
-  const parts = roots.map((root) => {
-    let row = 0;
-    const nodes = [], edges = [];
-    // The longest chain of cards: the path that decides when the last card can finish.
-    const critical = new Set();
-    for (let at = root; at; ) { critical.add(at.id); at = [...(kids.get(at.id) ?? [])].sort((a, b) => depthOf(b) - depthOf(a))[0]; }
-    const place = (c, depth) => {
-      const ch = (kids.get(c.id) ?? []).map((k) => place(k, depth + 1));
-      const y = ch.length ? (ch[0].y + ch[ch.length - 1].y) / 2 : row++ * (H + GY);
-      const n = { c, x: depth * (W + GX), y };
-      nodes.push(n);
-      for (const k of ch) edges.push({ from: n, to: k });
-      return n;
+  const parts = groups.map((group) => {
+    // Column = the longest path from a card that waits for nothing (the server refuses cycles; `seen` guards anyway).
+    const col = new Map();
+    const colOf = (c, seen = new Set()) => {
+      if (col.has(c.id)) return col.get(c.id);
+      if (seen.has(c.id)) return 0;
+      seen.add(c.id);
+      const v = Math.max(-1, ...parents.get(c.id).map((d) => colOf(byId.get(d.id), seen))) + 1;
+      col.set(c.id, v);
+      return v;
     };
-    place(root, 0);
-
-    const width = Math.max(...nodes.map((n) => n.x)) + W + 4, height = Math.max(...nodes.map((n) => n.y)) + H + 4;
+    for (const c of group) colOf(c);
+    // The critical chain: from the start card with the longest chain below it, always on to its deepest child.
+    const below = new Map();
+    const depthBelow = (c) => {
+      if (below.has(c.id)) return below.get(c.id);
+      below.set(c.id, 1);
+      const v = 1 + Math.max(0, ...(kids.get(c.id) ?? []).map(depthBelow));
+      below.set(c.id, v);
+      return v;
+    };
+    const critical = new Set();
+    let at = group.filter((c) => !parents.get(c.id).length).sort((a, b) => depthBelow(b) - depthBelow(a))[0];
+    while (at && !critical.has(at.id)) { critical.add(at.id); at = [...(kids.get(at.id) ?? [])].sort((a, b) => depthBelow(b) - depthBelow(a))[0]; }
+    // Rows: each column ordered by where the cards it waits for are, so edges cross less.
+    const rowOf = new Map();
+    const columns = [];
+    for (const c of group) (columns[col.get(c.id)] ??= []).push(c);
+    for (const list of columns) {
+      if (!list) continue;
+      const key = (c) => { const r = parents.get(c.id).map((d) => rowOf.get(d.id)).filter((v) => v != null); return r.length ? r.reduce((a, b) => a + b, 0) / r.length : 0; };
+      list.sort((a, b) => key(a) - key(b) || a.createdAt.localeCompare(b.createdAt)).forEach((c, y) => rowOf.set(c.id, y));
+    }
+    const pos = (c) => ({ x: col.get(c.id) * (W + GX), y: rowOf.get(c.id) * (H + GY) });
+    const width = Math.max(...group.map((c) => pos(c).x)) + W + 4, height = Math.max(...group.map((c) => pos(c).y)) + H + 4;
     const svg = add(document.createDocumentFragment(), 'svg', { width, height, viewBox: `0 0 ${width} ${height}` });
-    for (const { from, to } of edges) {
-      const x1 = from.x + W, y1 = from.y + H / 2, x2 = to.x, y2 = to.y + H / 2, mx = (x1 + x2) / 2;
-      const blocking = to.c.after === from.c.id && !AFTER_MET[to.c.afterKind ?? 'done'].includes(from.c.status);
-      const crit = critical.has(from.c.id) && critical.has(to.c.id) && to.c.status !== 'done';
-      add(svg, 'path', { d: `M${x1} ${y1} C${mx} ${y1} ${mx} ${y2} ${x2} ${y2}`, class: `g-edge${blocking ? ' blocking' : ''}${crit ? ' crit' : ''}` });
+    for (const to of group) {
+      for (const d of parents.get(to.id)) {
+        const from = byId.get(d.id);
+        const a = pos(from), b = pos(to);
+        const x1 = a.x + W, y1 = a.y + H / 2, x2 = b.x, y2 = b.y + H / 2, mx = (x1 + x2) / 2;
+        const blocking = !AFTER_MET[d.kind ?? 'done'].includes(from.status);
+        const crit = critical.has(from.id) && critical.has(to.id) && to.status !== 'done';
+        add(svg, 'path', { d: `M${x1} ${y1} C${mx} ${y1} ${mx} ${y2} ${x2} ${y2}`, class: `g-edge${blocking ? ' blocking' : ''}${crit ? ' crit' : ''}` });
+      }
     }
-    for (const n of nodes) {
-      const ph = phaseInfo.cards[n.c.id];
-      const label = ph?.label ?? LABELS[n.c.status];
-      const g = add(svg, 'g', { class: `g-node s-${n.c.status} ${ph ? `tone-${ph.tone}` : ''}`, transform: `translate(${n.x} ${n.y})`, tabindex: 0 });
-      add(g, 'title', {}, `${n.c.title}\n${label}${ph?.reason ? `: ${ph.reason}` : ''}`);
+    for (const c of group) {
+      const { x, y } = pos(c);
+      const ph = phaseInfo.cards[c.id];
+      const label = `${c.kind === 'research' ? 'Selvitys · ' : ''}${ph?.label ?? LABELS[c.status]}`;
+      const g = add(svg, 'g', { class: `g-node s-${c.status} ${ph ? `tone-${ph.tone}` : ''}`, transform: `translate(${x} ${y})`, tabindex: 0 });
+      add(g, 'title', {}, `${c.title}\n${label}${ph?.reason ? `: ${ph.reason}` : ''}`);
       add(g, 'rect', { width: W, height: H, rx: 8 });
-      add(g, 'text', { x: 12, y: 22 }, n.c.title.length > 30 ? `${n.c.title.slice(0, 29)}…` : n.c.title);
+      add(g, 'text', { x: 12, y: 22 }, c.title.length > 30 ? `${c.title.slice(0, 29)}…` : c.title);
       add(g, 'text', { x: 12, y: 41, class: 'sub' }, label.length > 36 ? `${label.slice(0, 35)}…` : label);
-      g.addEventListener('click', () => openDetail(n.c.id));
-      g.addEventListener('keydown', (e) => { if (e.key === 'Enter') openDetail(n.c.id); });
+      g.addEventListener('click', () => openDetail(c.id));
+      g.addEventListener('keydown', (e) => { if (e.key === 'Enter') openDetail(c.id); });
     }
-    const left = nodes.filter((n) => n.c.status !== 'done').length;
-    return el('div', { className: 'tree' }, el('h2', { textContent: root.repos[0] ?? root.title }, el('span', { textContent: `${nodes.length} korttia, ${left} kesken` })), svg);
+    const left = group.filter((c) => c.status !== 'done').length;
+    const first = group.filter((c) => !parents.get(c.id).length).sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0] ?? group[0];
+    return el('div', { className: 'tree' }, el('h2', { textContent: first.repos[0] ?? first.title }, el('span', { textContent: `${group.length} korttia, ${left} kesken` })), svg);
   });
+  const alone = live.length - linked.length;
   box.replaceChildren(
-    el('div', { className: 'legend', textContent: 'Paksu viiva: pisin ketju (ratkaisee, milloin viimeinen kortti voi valmistua). Katkoviiva: riippuvuus ei ole vielä täyttynyt. Klikkaa korttia avataksesi sen.' }),
-    ...(parts.length ? parts : [el('div', { className: 'muted', textContent: 'Ei korttiketjuja. Kun kortille asetetaan "aloita kortin X jälkeen", ketju näkyy tässä.' })]),
+    el('div', { className: 'legend', textContent: 'Kortti on sarakkeessa oikealla kaikista korteista, joita se odottaa. Paksu viiva: pisin ketju (ratkaisee, milloin viimeinen kortti voi valmistua). Katkoviiva: riippuvuus ei ole vielä täyttynyt. Klikkaa korttia avataksesi sen.' }),
+    ...(parts.length ? parts : [el('div', { className: 'muted', textContent: 'Ei korttiketjuja. Kun kortille lisätään riippuvuus, ketju näkyy tässä.' })]),
     ...(alone > 0 && parts.length ? [el('div', { className: 'muted', textContent: `${alone} korttia ilman riippuvuuksia ei näy kaaviossa.` })] : []));
 }
 
@@ -78,7 +119,8 @@ function renderCard(c) {
   const meta_ = el('div', { className: 'meta' },
     el('span', { className: `p-${c.priority}`, textContent: PRIO[c.priority] }));
   if (c.repos.length) meta_.append(el('span', { textContent: c.repos.join(', ') }));
-  if (c.after) meta_.append(el('span', { textContent: dependencyText(c) }));
+  if (c.kind === 'research') meta_.prepend(el('span', { className: 'kind-research', textContent: 'Selvitys', title: 'Selvityskortti: agentti tutkii ja raportoi, ei muuta koodia' }));
+  for (const d of cardDeps(c)) meta_.append(el('span', { textContent: dependencyText(d) }));
   const title = el('div', { className: 'title', textContent: c.title });
   title.addEventListener('click', () => openDetail(c.id));
   const card = el('article', { className: `card s-${c.status}` }, title, meta_);
@@ -102,14 +144,52 @@ function renderCard(c) {
   return card;
 }
 
-// ---- dependencies: kept in step with unmetDependency() in lib/cards.js ----
+// ---- dependencies: kept in step with depsOf() / unmetDependencies() in lib/cards.js ----
 const AFTER_LABEL = { done: 'toteutus', planned: 'suunnitelma' };
 const AFTER_MET = { done: ['done', 'archive'], planned: ['ready', 'running', 'needs_input', 'review', 'done', 'archive'] };
-function dependencyText(c) {
-  const dep = allCards.find((x) => x.id === c.after);
-  const kind = c.afterKind ?? 'done';
+/** A card's dependencies as [{ id, kind }] (the server always sends `deps`; `after` is from before a card could have several). */
+const cardDeps = (c) => (Array.isArray(c.deps) ? c.deps : c.after ? [{ id: c.after, kind: c.afterKind ?? 'done' }] : []);
+function dependencyText(d) {
+  const dep = allCards.find((x) => x.id === d.id);
+  const kind = d.kind ?? 'done';
   const met = !dep || AFTER_MET[kind].includes(dep.status);
-  return `${met ? '✓ ' : ''}odottaa: ${dep ? dep.title : c.after} (${AFTER_LABEL[kind]})`;
+  return `${met ? '✓ ' : ''}odottaa: ${dep ? dep.title : d.id} (${AFTER_LABEL[kind]})`;
+}
+
+/**
+ * An editor for a card's dependency list: one row per card it waits for (which card, what it needs of it, remove)
+ * and a button to add one. `exclude` is the card itself. `get()` gives the list as the API takes it.
+ */
+function depsEditor({ value = [], exclude = null, onChange = () => {} } = {}) {
+  let list = value.map((d) => ({ id: d.id, kind: d.kind ?? 'done' }));
+  const box = el('div', { className: 'deps-editor' });
+  // A card already in the list is not offered again; an archived one only where it is already chosen.
+  const choices = (current) => allCards.filter((c) => c.id !== exclude && (c.status !== 'archive' || c.id === current)
+    && (c.id === current || !list.some((d) => d.id === c.id)));
+  function paint() {
+    const rows = list.map((d, i) => {
+      const card = el('select', { ariaLabel: 'Kortti, jota odotetaan' },
+        ...choices(d.id).map((c) => el('option', { value: c.id, textContent: `${c.title} (${LABELS[c.status]})`, selected: c.id === d.id })));
+      card.addEventListener('change', () => { list[i].id = card.value; paint(); onChange(); });
+      const kind = el('select', { ariaLabel: 'Mitä siltä odotetaan' },
+        el('option', { value: 'done', textContent: 'toteutus valmis (Done)', selected: d.kind === 'done' }),
+        el('option', { value: 'planned', textContent: 'suunnitelma hyväksytty', selected: d.kind === 'planned' }));
+      kind.addEventListener('change', () => { list[i].kind = kind.value; onChange(); });
+      const remove = el('button', { type: 'button', textContent: '×', title: 'Poista riippuvuus', ariaLabel: 'Poista riippuvuus' });
+      remove.addEventListener('click', () => { list.splice(i, 1); paint(); onChange(); });
+      return el('div', { className: 'dep-row' }, card, kind, remove);
+    });
+    const free = choices(null);
+    const addBtn = el('button', { type: 'button', textContent: '+ Lisää riippuvuus', disabled: !free.length });
+    addBtn.addEventListener('click', () => { list.push({ id: free[0].id, kind: 'done' }); paint(); onChange(); });
+    box.replaceChildren(...rows, ...(rows.length ? [] : [el('div', { className: 'muted', textContent: 'Ei riippuvuuksia: kortin voi aloittaa heti.' })]), addBtn);
+  }
+  paint();
+  return {
+    el: box,
+    get: () => list.map((d) => ({ ...d })),
+    set: (v) => { list = v.map((d) => ({ id: d.id, kind: d.kind ?? 'done' })); paint(); },
+  };
 }
 
 // ---- notifications: a card that starts waiting for the person ----

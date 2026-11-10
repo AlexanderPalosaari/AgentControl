@@ -432,3 +432,57 @@ body[data-view="sandbox"] #next, body[data-view="sandbox"] #agents, body[data-vi
   .sb-grid { grid-template-columns: minmax(0, 1fr); }
   .sb-chat { position: static; height: 520px; }
 }
+
+/* #/konsoli: every working agent's conversation, live */
+#console { display: none; flex-direction: column; gap: 14px; min-width: 0; }
+body[data-view="konsoli"] #console { display: flex; }
+body[data-view="konsoli"] #next, body[data-view="konsoli"] #agents, body[data-view="konsoli"] #board, body[data-view="konsoli"] #stats, body[data-view="konsoli"] #changes { display: none; }
+.con-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.con-head #con-count { flex: 1 1 auto; }
+.con-head label { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--ink2); cursor: pointer; min-height: 32px; }
+#console .empty { padding: 18px; color: var(--muted); background: var(--panel); border: 1px dashed var(--border2); border-radius: 12px; }
+#con-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr)); gap: 14px; }
+.cpane { display: flex; flex-direction: column; min-width: 0; height: 460px; background: #0A0D11; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; transition: border-color .4s; }
+.cpane.fresh { border-color: var(--blue); }
+.cpane.wide { grid-column: 1 / -1; height: 70vh; }
+.cpane.ended { opacity: .6; }
+.chead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 10px; background: var(--panel); border-bottom: 1px solid var(--border); }
+.ckind { font: 600 11.5px var(--sans); border: 1px solid currentColor; border-radius: 999px; padding: 0 8px; }
+.ckind.k-agent { color: var(--blue); }
+.ckind.k-research { color: var(--violet); }
+.ckind.k-refine { color: var(--green); }
+.ctitle { all: unset; cursor: pointer; font-weight: 600; flex: 1 1 160px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctitle:hover, .ctitle:focus-visible { text-decoration: underline; }
+.cstatus { font-size: 12.5px; color: var(--muted); }
+.cstatus.warn { color: var(--amber); }
+.ctools { display: flex; gap: 6px; margin-left: auto; }
+.ctools button { min-height: 28px; padding: 0 8px; font-size: 12.5px; }
+.ctools button.mono { font-family: var(--mono); }
+.clog { flex: 1; overflow-y: auto; padding: 8px 10px; font: 12.5px/1.45 var(--mono); color: #C9D1DC; overscroll-behavior: contain; }
+.cl { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 8px; padding: 1px 0; }
+.cl .ct { color: #56606E; }
+.cl .cx { white-space: pre-wrap; word-break: break-word; }
+.cl.text .cx { color: #E7EBF0; font-family: var(--sans); font-size: 13.5px; }
+.cl.thinking .cx { color: #8F9AB0; font-style: italic; }
+.cl.tool .cx { color: var(--blue); }
+.cl.output .cx { color: #7D8796; max-height: 9em; overflow: hidden; }
+.cl.user .cx { color: var(--amber); }
+.cl.turn .cx, .cl.result .cx { color: var(--muted); }
+.cl.err .cx { color: var(--high); }
+.cl.sub { opacity: .75; }
+.cl.sub .cx::before { content: '↳ '; }
+#console.no-thinking .cl.thinking, #console.no-output .cl.output { display: none; }
+
+/* research cards, and the dependency editor */
+.kind-research { color: var(--violet); font-weight: 600; }
+.kind-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 4px; }
+.kind-pick label { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; margin: 0; padding: 10px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; color: var(--text); }
+.kind-pick label:has(input:checked) { border-color: var(--accent); background: rgba(108, 176, 255, .08); }
+.kind-pick input { grid-row: span 2; margin-top: 3px; }
+.kind-pick .muted { font-size: 12.5px; }
+@media (max-width: 560px) { .kind-pick { grid-template-columns: 1fr; } }
+.deps-editor { display: flex; flex-direction: column; gap: 6px; }
+.deps-editor .dep-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px; }
+.deps-editor .dep-row select { min-width: 0; }
+.deps-editor > button { align-self: flex-start; }
+.followup { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: start; margin-bottom: 6px; }

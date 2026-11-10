@@ -27,14 +27,14 @@ async function loadRepoChips() {
   } catch { box.replaceChildren(); } // the text field still works
 }
 reposInput.addEventListener('input', paintRepoChips);
+let newDeps = null; // the dependency editor of the open new-card form
 
 document.getElementById('new').addEventListener('click', () => {
   loadRepoChips();
   const prio = document.getElementById('f-priority');
   prio.replaceChildren(...meta.priorities.map((p) => el('option', { value: p, textContent: PRIO[p], selected: p === 'normal' })));
-  const after = document.getElementById('f-after');
-  after.replaceChildren(el('option', { value: '', textContent: '(ei riippuvuutta)' }),
-    ...cards.filter((c) => c.status !== 'archive').map((c) => el('option', { value: c.id, textContent: c.title })));
+  newDeps = depsEditor();
+  document.getElementById('f-deps').replaceChildren(newDeps.el);
   document.getElementById('error').textContent = '';
   draftImages = [];
   paintDraftImages();
@@ -80,8 +80,8 @@ document.getElementById('form').addEventListener('submit', async (ev) => {
       repos: document.getElementById('f-repos').value.split(',').map((s) => s.trim()).filter(Boolean),
       baseBranch: document.getElementById('f-base').value.trim() || null,
       priority: document.getElementById('f-priority').value,
-      after: document.getElementById('f-after').value || null,
-      afterKind: document.getElementById('f-after-kind').value,
+      kind: document.querySelector('input[name="f-kind"]:checked')?.value ?? 'task',
+      deps: newDeps?.get() ?? [],
     } });
     const images = draftImages;
     draftImages = [];

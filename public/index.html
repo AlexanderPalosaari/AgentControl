@@ -17,6 +17,7 @@
   <nav class="nav" aria-label="Näkymät">
     <a href="#/keskus" data-view="keskus"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>Komentokeskus</a>
     <a href="#/taulu" data-view="taulu"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10" rx="1"/><rect x="17" y="4" width="4" height="13" rx="1"/></svg>Taulu</a>
+    <a href="#/konsoli" data-view="konsoli"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/></svg>Konsoli</a>
     <a href="#/riippuvuudet" data-view="riippuvuudet"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="2.5"/><circle cx="19" cy="6" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="M7.5 12H11a3 3 0 0 0 3-3V8.5a2.5 2.5 0 0 1 2.5-2.5M11 12a3 3 0 0 1 3 3v.5a2.5 2.5 0 0 0 2.5 2.5"/></svg>Riippuvuudet</a>
     <a href="#/muutokset" data-view="muutokset"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 8.5v7M8.5 6H13a3 3 0 0 1 3 3v.5"/></svg>Muutokset <span id="nav-changes" class="badge" hidden></span></a>
     <a href="#/sandbox" data-view="sandbox"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l4-1 11-11-3-3L5 16zM14 6l3 3"/><path d="M14 20h6"/></svg>Sandbox</a>
@@ -52,6 +53,16 @@
   <section id="agents" aria-label="Agentit"></section>
   <section id="changes" aria-label="Muutokset"></section>
   <section id="graph" aria-label="Riippuvuudet"></section>
+  <section id="console" aria-label="Konsoli">
+    <div class="con-head">
+      <span id="con-count" class="muted"></span>
+      <label><input type="checkbox" id="con-thinking"> Mietintä</label>
+      <label><input type="checkbox" id="con-output"> Työkalujen tulosteet</label>
+      <button type="button" id="con-clear" hidden>Poista päättyneet</button>
+    </div>
+    <div id="con-empty" class="empty">Kun agentti toteuttaa, selvittää tai tarkentaa korttia, sen keskustelu, mietintä ja komennot näkyvät tässä reaaliajassa.</div>
+    <div id="con-grid"></div>
+  </section>
   <section id="settings" aria-label="Asetukset">
     <div class="group" id="set-runner"></div>
     <div class="group" id="set-usage"></div>
@@ -124,6 +135,10 @@
 <dialog id="dlg">
   <form method="dialog" id="form">
     <h2 style="margin-top:0">Uusi kortti</h2>
+    <div class="kind-pick" role="radiogroup" aria-label="Kortin tyyppi">
+      <label><input type="radio" name="f-kind" value="task" checked> <b>Toteutus</b><span class="muted">Agentti muuttaa koodia omassa haarassaan.</span></label>
+      <label><input type="radio" name="f-kind" value="research"> <b>Selvitys</b><span class="muted">Agentti vain tutkii (koodi, dokumentit, verkko) ja kirjoittaa raportin. Ei koodimuutoksia, repo on valinnainen.</span></label>
+    </div>
     <label for="f-title">Otsikko</label>
     <input id="f-title" required maxlength="200">
     <label for="f-brief">Kuvaus</label>
@@ -137,13 +152,8 @@
     <input id="f-base" placeholder="esim. features/maui-dev (tyhjä = oletus)" title="Haara, josta työ tehdään ja johon pull request menee. Tyhjä = projektin kohdehaara, muuten repon oletushaara." autocomplete="off">
     <label for="f-priority">Prioriteetti</label>
     <select id="f-priority"></select>
-    <label for="f-after">Riippuu kortista</label>
-    <select id="f-after"></select>
-    <label for="f-after-kind">Mitä siitä odotetaan</label>
-    <select id="f-after-kind">
-      <option value="done">Toteutus valmis (Done)</option>
-      <option value="planned">Suunnitelma hyväksytty (Ready tai pidemmällä)</option>
-    </select>
+    <label>Riippuu korteista</label>
+    <div id="f-deps"></div>
     <div id="error"></div>
     <div class="actions">
       <button type="button" id="cancel">Peruuta</button>
@@ -167,6 +177,7 @@
   <div class="muted" id="d-meta"></div>
   <section id="d-brief-sec"><h3>Kuvaus</h3><div class="pre" id="d-brief"></div></section>
   <section id="d-base"></section>
+  <section id="d-deps"></section>
   <section><h3>Kuvat</h3><div id="d-images" class="thumbs"></div><div class="paste-hint">Liitä kuva tähän korttiin Ctrl+V:llä. Kortin agentit näkevät kuvat.</div></section>
   <section id="d-run"></section>
   <section id="d-diff"></section>
@@ -249,6 +260,7 @@
 <script defer src="/js/command.js"></script>
 <script defer src="/js/voice-control.js"></script>
 <script defer src="/js/sandbox.js"></script>
+<script defer src="/js/console.js"></script>
 <script defer src="/js/main.js"></script>
 </body>
 </html>

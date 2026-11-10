@@ -220,7 +220,7 @@ function followProject(p) {
     watchProject(p.name);
   } else if (p.step === 'review') {
     if (s.error) reply(`Viimeisin päivitys epäonnistui: ${s.error}`, { error: true });
-    reply(`Suunnitelma valmis: ${s.summary}\n${s.tasks.map((t, i) => `${i + 1}. ${t.title}${t.after != null ? ` (odottaa tehtävää ${t.after + 1})` : ''}`).join('\n')}\nKoko suunnitelma on projektin ikkunassa.`);
+    reply(`Suunnitelma valmis: ${s.summary}\n${s.tasks.map((t, i) => `${i + 1}. ${t.title}${t.after != null ? ` (odottaa: ${[t.after, ...(t.alsoAfter ?? [])].map((n) => n + 1).join(', ')})` : ''}`).join('\n')}\nKoko suunnitelma on projektin ikkunassa.`);
     ask('Luodaanko kortit? Vastaa "luo kortit", tai kirjoita mitä suunnitelmassa muutetaan.',
       (t) => (isApproval(t) ? projectCommand(p.name, 'tasks', { tasks: chosenTasks(p.name) }) : projectCommand(p.name, 'plan', { feedback: t })), at);
   } else {

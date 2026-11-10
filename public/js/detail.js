@@ -134,6 +134,7 @@ function renderRun(d) {
   const run = d.run;
   paintDiffButton(run);
   if (!run) return box.replaceChildren();
+  if (run.kind === 'research') return renderResearchRun(box, d);
   const parts = [el('h3', { textContent: 'Toteutus' })];
   parts.push(el('div', {}, el('strong', { textContent: RUN_LABEL[run.state] ?? run.state }),
     el('span', { className: 'muted', textContent: run.model ? ` · ${run.model}${run.effort ? ' / ' + run.effort : ''}` : '' })));
@@ -246,10 +247,73 @@ function renderRun(d) {
   }
   if (d.report) parts.push(el('h3', { textContent: 'Raportti', style: 'margin-top:10px' }), el('div', { className: 'pre', textContent: d.report }));
   if (d.commitMessage) parts.push(el('h3', { textContent: 'Ehdotettu commit-viesti', style: 'margin-top:10px' }), el('div', { className: 'pre', textContent: d.commitMessage }));
-  if (Array.isArray(d.followups) && d.followups.length) {
-    parts.push(el('h3', { textContent: 'Jatkotoimenpide-ehdotukset', style: 'margin-top:10px' }),
-      ...d.followups.map((f) => el('div', { className: 'pre', textContent: `${f.title ?? ''}${f.brief ? '\n' + f.brief : ''}`, style: 'margin-bottom:6px' })));
+  parts.push(...followupList(d.followups, card));
+  box.replaceChildren(...parts);
+}
+
+/** The agent's follow-up suggestions, each with a button that makes it an Inbox card (same repositories, waiting for nothing). */
+function followupList(followups, card) {
+  if (!Array.isArray(followups) || !followups.length) return [];
+  return [el('h3', { textContent: 'Jatkotoimenpide-ehdotukset', style: 'margin-top:10px' }), ...followups.map((f) => {
+    const make = el('button', { type: 'button', textContent: 'Luo kortti' });
+    make.addEventListener('click', async () => {
+      make.disabled = true;
+      try {
+        await api('/api/cards', { method: 'POST', body: { title: String(f.title ?? '').slice(0, 200) || 'Jatkotoimenpide', brief: `${f.brief ?? ''}${card ? `\n\n(Ehdotus kortilta "${card.title}")` : ''}`, repos: card?.repos ?? [] } });
+        make.textContent = 'Kortti luotu Inboxiin';
+        await refresh(true);
+      } catch (e) { toast(e.message); make.disabled = false; }
+    });
+    return el('div', { className: 'followup' }, el('div', { className: 'pre', textContent: `${f.title ?? ''}${f.brief ? '\n' + f.brief : ''}` }), make);
+  })];
+}
+
+/** A research card's run: what it is doing, its question, and its report (the result) with the follow-ups it suggests. */
+function renderResearchRun(box, d) {
+  const run = d.run;
+  const card = allCards.find((x) => x.id === openId);
+  const parts = [el('h3', { textContent: 'Selvitys' }), el('div', {}, el('strong', { textContent: RUN_LABEL[run.state] ?? run.state }),
+    el('span', { className: 'muted', textContent: run.model ? ` · ${run.model}${run.effort ? ' / ' + run.effort : ''}` : '' }))];
+  for (const w of run.worktrees) parts.push(el('div', { className: 'muted', textContent: `${w.repo}: luetaan haaraa ${targetOf(w)} (${w.path})` }));
+  if (run.agentId) parts.push(el('div', { className: 'muted', textContent: `agentti ${run.agentId} · seuraa Konsoli-näkymässä tai terminaalissa: claude attach ${run.agentId}` }));
+  if (run.error) parts.push(el('div', { className: 'err pre', textContent: run.error }));
+  if (run.waitingFor) {
+    const open = el('button', { type: 'button', className: 'primary', textContent: 'Avaa lupakysely', style: 'margin-top:6px' });
+    open.addEventListener('click', () => openPermissionPrompt(openId));
+    parts.push(el('div', { className: 'pre' }, el('div', { textContent: `Agentti odottaa lupaa (${run.waitingFor}).` }), open));
   }
+  if (d.question) {
+    const reply = el('textarea', { placeholder: 'Vastauksesi agentille', style: 'min-height:70px;width:100%' });
+    const send = el('button', { className: 'primary', textContent: 'Lähetä vastaus' });
+    send.addEventListener('click', () => runAct('answer', { message: reply.value }));
+    parts.push(el('h3', { textContent: 'Agentin kysymys', style: 'margin-top:10px' }), el('div', { className: 'pre', textContent: d.question }), reply, el('div', { className: 'actions' }, micButton(reply), send));
+  }
+  const buttons = el('div', { className: 'row', style: 'margin-top:8px' });
+  if (run.state === 'running' || run.state === 'needs_input') {
+    const b = el('button', { textContent: 'Pysäytä' });
+    b.addEventListener('click', async () => (await confirmBox({ title: 'Pysäytä selvitys', text: 'Pysäytetäänkö selvitysagentti?', ok: 'Pysäytä', danger: true })) && runAct('stop'));
+    buttons.append(b);
+  }
+  if (run.state === 'failed' || run.state === 'stopped') {
+    const b = el('button', { className: 'primary', textContent: 'Yritä uudelleen / jatka' });
+    b.addEventListener('click', () => runAct('retry'));
+    buttons.append(b);
+  }
+  if (card?.status === 'review' && run.state === 'finished') {
+    // Further questions go to the same session, which still knows what it found.
+    const more = el('textarea', { placeholder: 'Jatkokysymys samalle agentille (valinnainen)', style: 'min-height:60px;width:100%' });
+    const ask = el('button', { textContent: 'Kysy lisää' });
+    ask.addEventListener('click', () => (more.value.trim() ? runAct('answer', { message: more.value }) : toast('Kirjoita jatkokysymys')));
+    const done = el('button', { className: 'primary', textContent: 'Merkitse valmiiksi' });
+    done.addEventListener('click', async () => {
+      try { await api(`/api/cards/${openId}`, { method: 'PATCH', body: { status: 'done' } }); advanced('Selvitys valmis'); } catch (e) { toast(e.message); }
+    });
+    buttons.append(done);
+    parts.push(el('div', { className: 'muted', style: 'margin-top:8px', textContent: 'Lue raportti. Voit luoda ehdotuksista kortteja tai kysyä lisää; "Merkitse valmiiksi" siirtää kortin Doneen ja siivoaa agentin työkansion (raportti säilyy).' }), more, el('div', { className: 'row' }, ask));
+  }
+  if (buttons.children.length) parts.push(buttons);
+  if (d.report) parts.push(el('h3', { textContent: 'Raportti', style: 'margin-top:10px' }), el('div', { className: 'pre report', textContent: d.report }));
+  parts.push(...followupList(d.followups, card));
   box.replaceChildren(...parts);
 }
 
@@ -264,7 +328,7 @@ function diffLineClass(line) {
 
 function paintDiffButton(run) {
   const box = document.getElementById('d-diff');
-  if (!run?.worktrees?.length) return box.replaceChildren();
+  if (!run?.worktrees?.length || run.kind === 'research') return box.replaceChildren(); // research changes no code
   if (box.dataset.shown) return; // keep an opened diff while the run data keeps polling
   const b = el('button', { type: 'button', textContent: 'Näytä muutokset' });
   b.addEventListener('click', () => loadDiff());
@@ -301,12 +365,45 @@ const detail = document.getElementById('detail');
 let openId = null, refineJson = '', es = null, pollTimer = null;
 
 function setDetailMeta(c) {
-  document.getElementById('d-meta').textContent = `${LABELS[c.status]}${phaseInfo.cards[c.id] ? ` (${phaseInfo.cards[c.id].label})` : ''} · ${PRIO[c.priority]}${c.repos.length ? ' · ' + c.repos.join(', ') : ''}${c.baseBranch ? ` → ${c.baseBranch}` : ''}${cardTokens(c.id)}`;
+  paintDeps(c);
+  document.getElementById('d-meta').textContent = `${c.kind === 'research' ? 'Selvitys · ' : ''}${LABELS[c.status]}${phaseInfo.cards[c.id] ? ` (${phaseInfo.cards[c.id].label})` : ''} · ${PRIO[c.priority]}${c.repos.length ? ' · ' + c.repos.join(', ') : ''}${c.baseBranch ? ` → ${c.baseBranch}` : ''}${cardTokens(c.id)}`;
   paintBase(c);
 }
 
 // Where a card's base branch can still change: the work forks from it when it starts (the server says the same).
 const BASE_EDITABLE = ['inbox', 'refining', 'ready', 'needs_input'];
+
+/**
+ * The cards this card waits for: editable until its work starts (a later change would decide nothing), else listed.
+ * Redrawn only when the card's dependencies or column change, so a half-made edit is kept while the page polls.
+ */
+function paintDeps(c) {
+  const box = document.getElementById('d-deps');
+  const deps = cardDeps(c);
+  const key = `${c.id}|${c.status}|${JSON.stringify(deps)}`;
+  if (box.dataset.key === key) return;
+  box.dataset.key = key;
+  if (c.project) return box.replaceChildren();
+  if (!BASE_EDITABLE.includes(c.status) && c.status !== 'archive') {
+    return box.replaceChildren(...(deps.length ? [el('h3', { textContent: 'Riippuvuudet' }), ...deps.map((d) => el('div', { textContent: dependencyText(d) }))] : []));
+  }
+  const save = el('button', { type: 'button', textContent: 'Tallenna riippuvuudet', disabled: true });
+  const editor = depsEditor({ value: deps, exclude: c.id, onChange: () => { save.disabled = JSON.stringify(editor.get()) === JSON.stringify(deps); } });
+  save.addEventListener('click', async () => {
+    save.disabled = true;
+    try {
+      const updated = await api(`/api/cards/${c.id}`, { method: 'PATCH', body: { deps: editor.get() } });
+      Object.assign(c, updated);
+      toast(updated.deps.length ? `Riippuvuuksia: ${updated.deps.length}` : 'Riippuvuudet poistettu');
+      await refresh(true);
+    } catch (e) {
+      toast(e.message);
+      save.disabled = false;
+    }
+  });
+  box.replaceChildren(el('h3', { textContent: 'Riippuvuudet' }), editor.el, el('div', { className: 'row', style: 'margin-top:6px' }, save),
+    el('div', { className: 'hint', textContent: 'Kortti odottaa kaikkia näitä kortteja. "Toteutus valmis" = kortti on Done; "suunnitelma hyväksytty" = sen suunnitelma on hyväksytty, joten tämän voi suunnitella rinnakkain.' }));
+}
 
 /** The card's base branch, editable until its work starts; redrawn only when that changes, so typing is kept. */
 function paintBase(c) {
@@ -344,6 +441,7 @@ function openDetail(id) {
   runJson = '';
   document.getElementById('d-run').replaceChildren();
   delete document.getElementById('d-base').dataset.key; // drawn again for this card by setDetailMeta
+  delete document.getElementById('d-deps').dataset.key;
   const diffBox = document.getElementById('d-diff');
   diffBox.replaceChildren();
   delete diffBox.dataset.shown;
@@ -407,8 +505,11 @@ function addLive(e) {
   else if (e.kind === 'text') text = e.text;
   else if (e.kind === 'result') text = 'valmis';
   else if (e.kind === 'error') text = `virhe: ${e.message}`;
+  else if (e.kind === 'thinking') text = `(miettii) ${e.text}`;
+  else if (e.kind === 'user') text = `› ${e.text}`;
+  else if (e.kind === 'output') return; // a tool's output: the Konsoli view shows it, here it would drown the rest
   else return;
-  box.append(el('div', { textContent: text, className: e.kind === 'error' ? 'err' : '' }));
+  box.append(el('div', { textContent: e.agent && e.kind === 'tool' ? `▸ ${text}` : text, className: e.kind === 'error' ? 'err' : e.kind === 'thinking' ? 'muted' : '' }));
   if (atBottom) box.scrollTop = box.scrollHeight;
 }
 
@@ -428,10 +529,12 @@ async function loadRefine() {
 /** The popup for a 409 "confirm first" answer (see ConfirmationError): refining before the dependency is ready. */
 function confirmDependency(data, cardId) {
   const c = allCards.find((x) => x.id === cardId);
-  const kind = data.afterKind === 'planned' ? 'sen suunnitelma on hyväksytty' : 'se on toteutettu (Done)';
+  const until = (k) => (k === 'planned' ? 'suunnitelma on hyväksytty' : 'toteutus on valmis (Done)');
+  const blockers = data.blockers ?? [{ ...data.blockedBy, kind: data.afterKind }];
+  const list = blockers.map((b) => `• "${b.title}" (nyt ${LABELS[b.status] ?? b.status}): odottaa, kunnes ${until(b.kind)}`).join('\n');
   return confirmBox({
-    title: 'Riippuvuus ei ole vielä valmis',
-    text: `"${c?.title ?? 'Kortti'}" riippuu kortista "${data.blockedBy?.title}" (nyt ${LABELS[data.blockedBy?.status] ?? data.blockedBy?.status}), ja sen pitäisi odottaa, kunnes ${kind}.\n\nAloitetaanko tarkennus silti?`,
+    title: blockers.length > 1 ? 'Riippuvuudet eivät ole vielä valmiita' : 'Riippuvuus ei ole vielä valmis',
+    text: `"${c?.title ?? 'Kortti'}" riippuu korteista, jotka eivät ole valmiita:\n${list}\n\nAloitetaanko tarkennus silti?`,
     ok: 'Aloita tarkennus',
   });
 }
@@ -444,7 +547,7 @@ function advanced(message) {
   loadNext();
 }
 
-const ACT_DONE = { 'refine/start': 'Tarkennus aloitettu', 'refine/answer': 'Vastaus lähetetty tarkentajalle', 'refine/approve': 'Suunnitelma hyväksytty, työ jonossa (Ready)', 'refine/retry': 'Tarkennus käynnistetty uudelleen' };
+const ACT_DONE = { 'refine/start': 'Tarkennus aloitettu', 'refine/answer': 'Vastaus lähetetty tarkentajalle', 'refine/approve': 'Suunnitelma hyväksytty, työ jonossa (Ready)', 'refine/retry': 'Tarkennus käynnistetty uudelleen', 'research/start': 'Selvitys jonossa, agentti aloittaa kun paikka vapautuu' };
 
 async function act(path, body) {
   let ok = false;
@@ -466,6 +569,12 @@ function renderRefine(r, c) {
 
   if (r.state === 'running') {
     parts.push(el('section', {}, el('h3', { textContent: 'Tarkennus' }), el('div', { className: 'muted', textContent: `Käynnissä, vuoro ${r.turn}…` })));
+  } else if (r.turn === 0 && canRefine && c.kind === 'research') {
+    // A research card changes nothing, so it needs no plan: its agent starts from the brief.
+    const b = el('button', { className: 'primary', textContent: 'Aloita selvitys' });
+    b.addEventListener('click', () => act('research/start'));
+    parts.push(el('section', {}, el('h3', { textContent: 'Selvitys' }),
+      el('div', { className: 'muted', textContent: 'Agentti tutkii kuvauksen kysymyksen (koodi, historia, dokumentit, verkko) ja kirjoittaa raportin. Se ei muuta koodia, joten tarkennusta ja suunnitelmaa ei tarvita. Kirjoita kuvaukseen, mitä haluat tietää.' }), b));
   } else if (r.turn === 0 && canRefine) {
     const b = el('button', { className: 'primary', textContent: 'Aloita tarkennus' });
     b.addEventListener('click', () => act('refine/start'));
